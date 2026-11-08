@@ -1,0 +1,4 @@
+// error: was moved
+struct P { string name; }
+void keep(P p) { }
+int main() { P p = new P { name = "a" }; keep(p); print(p.name); return 0; }

@@ -1,0 +1,3 @@
+// error: doesn't handle `Potion(var heal)`
+enum Item { Sword(int damage), Potion(int heal), Empty }
+int main() { Item i = Item.Empty; switch (i) { case Sword(int d): print(d); case Empty: print(0); } return 0; }

@@ -1,0 +1,57 @@
+// Axon bindings for cimgui (the C API of Dear ImGui 1.92.7), a subset for tool panels.
+// Names are the C names; `string?` maps to a `const char*` that may be NULL.
+extern "cimgui.h" {
+    struct ImVec2_c { float x; float y; }
+    struct ImVec4_c { float x; float y; float z; float w; }
+
+    const int ImGuiCond_Always;
+    const int ImGuiCond_Once;
+    const int ImGuiCond_FirstUseEver;
+
+    const int ImGuiWindowFlags_None;
+    const int ImGuiWindowFlags_NoResize;
+    const int ImGuiWindowFlags_NoCollapse;
+    const int ImGuiWindowFlags_AlwaysAutoResize;
+    const int ImGuiWindowFlags_NoSavedSettings;
+
+    const int ImGuiCol_Text;
+    const int ImGuiCol_Button;
+    const int ImGuiCol_ButtonHovered;
+    const int ImGuiCol_ButtonActive;
+
+    const int ImGuiHoveredFlags_AnyWindow;
+
+    string igGetVersion();
+
+    // windows
+    bool igBegin(string name, mut ref bool open, int flags);
+    void igEnd();
+    void igSetNextWindowPos(ImVec2_c pos, int cond, ImVec2_c pivot);
+    void igSetNextWindowSize(ImVec2_c size, int cond);
+    void igSetNextWindowBgAlpha(float alpha);
+    bool igIsWindowHovered(int flags);
+    void igShowDemoWindow(mut ref bool open);
+
+    // layout
+    void igSeparator();
+    void igSameLine(float offsetFromStartX, float spacing);
+    void igSpacing();
+    void igDummy(ImVec2_c size);
+    void igIndent(float width);
+
+    // widgets
+    void igTextUnformatted(string text, string? textEnd);
+    bool igButton(string label, ImVec2_c size);
+    bool igSmallButton(string label);
+    bool igCheckbox(string label, mut ref bool value);
+    bool igRadioButton_IntPtr(string label, mut ref int value, int buttonValue);
+    bool igSliderFloat(string label, mut ref float value, float min, float max, string format, int flags);
+    bool igSliderInt(string label, mut ref int value, int min, int max, string format, int flags);
+    void igProgressBar(float fraction, ImVec2_c size, string? overlay);
+    void igBeginDisabled(bool disabled);
+    void igEndDisabled();
+
+    // style
+    void igPushStyleColor_Vec4(int idx, ImVec4_c color);
+    void igPopStyleColor(int count);
+}

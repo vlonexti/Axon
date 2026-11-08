@@ -1,0 +1,4 @@
+// error: isn't marked `mut`
+struct P { int hp;
+  int get() { hp = 3; return hp; } }
+int main() { return 0; }

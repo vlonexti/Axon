@@ -1,0 +1,3 @@
+// error: needs `mut ref`
+void hit(mut ref int x) { x = 1; }
+int main() { int a = 0; hit(a); return a; }

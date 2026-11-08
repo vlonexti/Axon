@@ -1,0 +1,8 @@
+# axon.toml
+name = "zombies"
+version = "0.1.0"
+entry = "src/main.ax"
+
+[libraries]
+# uses the raylib copy that comes with the raylib-square example
+raylib = { include = "../raylib-square/libs/raylib/include", lib = "../raylib-square/libs/raylib/lib", link = ["raylib", "winmm", "gdi32", "user32", "shell32", "opengl32"] }

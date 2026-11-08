@@ -1,0 +1,4 @@
+// error: doesn't implement everything in `Damageable`
+interface Damageable { mut void takeDamage(int amount); }
+struct Z : Damageable { int hp; }
+int main() { return 0; }

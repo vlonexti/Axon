@@ -1,0 +1,3 @@
+// error: missing value for `health`
+struct P { string name; int health; }
+int main() { P p = new P { name = "a" }; return 0; }

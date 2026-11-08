@@ -1,0 +1,131 @@
+// Corners of the language: generics nesting, casts, switch forms, owned enum payloads.
+using std.math;
+
+const string GREETING = "hi";
+const long BIG = 9000000000L;
+
+enum Shape {
+    Circle(double r),
+    Rect(double w, double h),
+    Named(string name, List<Shape> parts),
+}
+
+enum Color { Red, Green, Blue }
+
+double area(ref Shape s) {
+    switch (s) {
+        case Circle(var r): return PI * r * r;
+        case Rect(var w, var h): return w * h;
+        case Named(_, _): return 0.0;
+    }
+}
+
+string grade(int score) {
+    switch (score / 10) {
+        case 10, 9: return "A";
+        case 8: return "B";
+        case 7: return "C";
+        default: return "F";
+    }
+}
+
+int countVowels(string text) {
+    int n = 0;
+    string[] letters = text.split("");
+    foreach (var l in letters) {
+        switch (l) {
+            case "a", "e", "i", "o", "u":
+                n++;
+                break;
+            default:
+                break;
+        }
+    }
+    return n;
+}
+
+int main() {
+    // nested generics: `>>` closes two levels
+    List<List<int>> grid = List<List<int>>();
+    for (int y = 0; y < 3; y++) {
+        List<int> row = List<int>();
+        for (int x = 0; x < 3; x++) {
+            row.add(x * y);
+        }
+        grid.add(row);
+    }
+    print(grid[2][2]);
+    grid[1][1] = 42;
+    print(grid[1][1]);
+
+    // numbers and casts
+    float f = 1.5f;
+    double d = f * 2;
+    int truncated = (int)7.9;
+    long big = BIG + 1;
+    byte b = (byte)300;
+    char c = 'A';
+    int code = c + 1;
+    print($"{d} {truncated} {big} {b} {(char)code} {7 / 2} {7 % 3} {-7 / 2} {1 << 4} {0xFF & 0x0F}");
+    print(10.0 / 4);
+    print(0.1 + 0.2);
+
+    // strings, ternary and ??
+    string? nick = none;
+    string shown = nick ?? "anonymous";
+    print(shown);
+    string? real = "Ace";
+    print(real ?? "nobody");
+    print(real ?? "nobody");     // `??` in a borrow position doesn't move `real`
+    int len = 4;
+    string size = len > 3 ? "long" : "short";
+    print(size + " " + GREETING);
+    print(countVowels("programming language"));
+    print(grade(95) + grade(81) + grade(70) + grade(12));
+    print("a-b-c".replace("-", "+") + " " + "Hello".indexOf("ll") + " " + "x".startsWith("x"));
+    print("  padded ".trim().length);
+    print(("Mixed" + "Case").toLower());
+    if ("12".toInt() is int twelve) {
+        print(twelve * 2);
+    }
+    print("3.5".toDouble() ?? 0.0);
+    print("nope".toInt() ?? -1);
+
+    // owned enum payloads
+    Shape[] shapes = [
+        Shape.Circle(1.0),
+        Shape.Rect(2.0, 3.5),
+        Shape.Named("box", [Shape.Rect(1.0, 1.0)]),
+    ];
+    double total = 0;
+    foreach (var s in shapes) {
+        total += area(ref s);
+    }
+    print(floor(total * 100) / 100);
+    Shape named = shapes[2].clone();
+    if (named is Named(var nm, var parts)) {
+        print("named " + nm + " " + parts.length);
+    }
+
+    // simple enums compare with ==
+    Color col = Color.Green;
+    if (col == Color.Green && col != Color.Red) {
+        print("green");
+    }
+
+    // do-while and bit tricks
+    int n = 0;
+    do {
+        n++;
+    } while (n < 5);
+    print(n);
+    long acc = 1;
+    for (int i = 0; i < 40; i++) {
+        acc *= 2;
+    }
+    print(acc);
+    bool flag = true;
+    flag &= false;
+    print(flag | true);
+    return 0;
+}

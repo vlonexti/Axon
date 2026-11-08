@@ -1,0 +1,147 @@
+// Phase 3 milestone, part two: a raylib window with a square you move with the keyboard,
+// plus a Dear ImGui panel (through cimgui) with buttons, sliders and a checkbox.
+using c "raylib.h";
+using c "cimgui.h";
+using c "rlImGui.h";
+
+struct Square {
+    Vector2 pos;
+    float size = 60;
+    float speed = 300;
+    Color color;
+
+    mut void update(float dt) {
+        if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) { pos.x += speed * dt; }
+        if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A))  { pos.x -= speed * dt; }
+        if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S))  { pos.y += speed * dt; }
+        if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W))    { pos.y -= speed * dt; }
+        float maxX = (float)GetScreenWidth() - size;
+        float maxY = (float)GetScreenHeight() - size;
+        if (pos.x < 0) { pos.x = 0; }
+        if (pos.y < 0) { pos.y = 0; }
+        if (pos.x > maxX) { pos.x = maxX; }
+        if (pos.y > maxY) { pos.y = maxY; }
+    }
+
+    void draw() {
+        DrawRectangleV(pos, new Vector2 { x = size, y = size }, color);
+    }
+}
+
+struct Swatch {
+    string name;
+    Color color;
+}
+
+struct Panel {
+    bool open = true;
+    bool showGrid = true;
+    int resets = 0;
+}
+
+ImVec2_c vec(float x, float y) {
+    return new ImVec2_c { x = x, y = y };
+}
+
+ImVec4_c toImGui(Color c, float brightness) {
+    return new ImVec4_c { x = c.r / 255.0f * brightness, y = c.g / 255.0f * brightness, z = c.b / 255.0f * brightness, w = 1 };
+}
+
+// A button drawn in the swatch's own color. Returns true when clicked.
+bool colorButton(ref Swatch s) {
+    igPushStyleColor_Vec4(ImGuiCol_Button, toImGui(s.color, 0.85f));
+    igPushStyleColor_Vec4(ImGuiCol_ButtonHovered, toImGui(s.color, 1.0f));
+    igPushStyleColor_Vec4(ImGuiCol_ButtonActive, toImGui(s.color, 0.7f));
+    bool clicked = igButton(s.name, vec(70, 0));
+    igPopStyleColor(3);
+    return clicked;
+}
+
+void drawGrid() {
+    for (int x = 0; x < GetScreenWidth(); x += 40) {
+        DrawLine(x, 0, x, GetScreenHeight(), LIGHTGRAY);
+    }
+    for (int y = 0; y < GetScreenHeight(); y += 40) {
+        DrawLine(0, y, GetScreenWidth(), y, LIGHTGRAY);
+    }
+}
+
+void drawPanel(mut ref Panel panel, mut ref Square sq, ref List<Swatch> swatches) {
+    if (!panel.open) {
+        return;
+    }
+    igSetNextWindowPos(vec(16, 16), ImGuiCond_FirstUseEver, vec(0, 0));
+    if (igBegin("Square", mut ref panel.open, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        igTextUnformatted($"Position: {(int)sq.pos.x}, {(int)sq.pos.y}", none);
+        igSliderFloat("Speed", mut ref sq.speed, 50, 900, "%.0f px/s", 0);
+        igSliderFloat("Size", mut ref sq.size, 10, 160, "%.0f px", 0);
+        igSeparator();
+
+        igTextUnformatted("Color", none);
+        for (int i = 0; i < swatches.length; i++) {
+            if (i > 0) {
+                igSameLine(0, -1);
+            }
+            if (colorButton(ref swatches[i])) {
+                sq.color = swatches[i].color;
+            }
+        }
+        igSeparator();
+
+        if (igButton("Center", vec(120, 0))) {
+            sq.pos = new Vector2 { x = (GetScreenWidth() - sq.size) / 2, y = (GetScreenHeight() - sq.size) / 2 };
+            panel.resets++;
+        }
+        igSameLine(0, -1);
+        if (igButton("Reset all", vec(120, 0))) {
+            sq.speed = 300;
+            sq.size = 60;
+            sq.color = swatches[0].color;
+            panel.resets++;
+        }
+        igCheckbox("Show grid", mut ref panel.showGrid);
+        float across = sq.pos.x / ((float)GetScreenWidth() - sq.size);
+        igProgressBar(across, vec(-1, 0), $"{(int)(across * 100)}% across");
+        igTextUnformatted($"Buttons used: {panel.resets}   (Tab hides this panel)", none);
+    }
+    igEnd();
+}
+
+int main() {
+    InitWindow(960, 540, "Axon + raylib + Dear ImGui");
+    SetTargetFPS(60);
+    rlImGuiSetup(true);
+
+    List<Swatch> swatches = [
+        new Swatch { name = "Maroon", color = MAROON },
+        new Swatch { name = "Blue", color = BLUE },
+        new Swatch { name = "Green", color = DARKGREEN },
+        new Swatch { name = "Gold", color = GOLD },
+    ];
+    Square sq = new Square { pos = new Vector2 { x = 600, y = 240 }, color = MAROON };
+    Panel panel = new Panel {};
+
+    while (!WindowShouldClose()) {
+        if (IsKeyPressed(KEY_TAB)) {
+            panel.open = !panel.open;
+        }
+        sq.update(GetFrameTime());
+
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
+        if (panel.showGrid) {
+            drawGrid();
+        }
+        sq.draw();
+        DrawText("Arrow keys move the square, Tab toggles the panel", 360, 510, 20, DARKGRAY);
+
+        rlImGuiBegin();
+        drawPanel(mut ref panel, mut ref sq, ref swatches);
+        rlImGuiEnd();
+        EndDrawing();
+    }
+
+    rlImGuiShutdown();
+    CloseWindow();
+    return 0;
+}

@@ -1,0 +1,4 @@
+# a library package: other projects use it with `using vecmath;`
+name = "vecmath"
+version = "1.0.0"
+lib = "src/lib.ax"

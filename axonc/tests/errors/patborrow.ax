@@ -1,0 +1,9 @@
+// error: while `v` borrows from it
+int main() {
+    string? s = "x";
+    if (s is string v) {
+        s = none;
+        print(v);
+    }
+    return 0;
+}

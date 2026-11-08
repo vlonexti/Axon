@@ -1,0 +1,8 @@
+// vecmath.geometry - shapes built on vectors (a second module in the package).
+struct Circle {
+    double r;
+
+    double area() {
+        return 3.141592653589793 * r * r;
+    }
+}

@@ -1,0 +1,4 @@
+// error: because it is only borrowed
+void keep(string s) { }
+void f(ref string s) { keep(s); }
+int main() { return 0; }

@@ -1,0 +1,14 @@
+// Phase 1 goal: fib(30) compiles and prints the right answer.
+int fib(int n) {
+    if (n < 2) {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+int main() {
+    int x = 40 + 2;
+    print(x);
+    print(fib(30));
+    return 0;
+}

@@ -1,0 +1,2 @@
+// error: has no `null`
+int main() { var x = null; return 0; }

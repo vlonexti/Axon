@@ -1,0 +1,128 @@
+// A tiny text adventure written entirely in Axon (the Phase 2 milestone).
+using std.io;
+using game.world;
+
+struct Game {
+    List<Room> rooms;
+    int here = 0;
+    List<Item> inventory;
+    int gold = 0;
+    bool won = false;
+
+    bool hasLamp() {
+        foreach (var it in inventory) {
+            if (it is Lamp) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool hasKeyFor(ref string door) {
+        foreach (var it in inventory) {
+            if (it is Key(var opens) && opens == door) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void look() {
+        Room room = rooms[here].clone();
+        print("== " + room.name + " ==");
+        if (room.dark && !hasLamp()) {
+            print("It is too dark to see anything.");
+            return;
+        }
+        print(room.description);
+        foreach (var it in room.items) {
+            print("  You see " + itemName(ref it) + ".");
+        }
+        write("  Exits:");
+        foreach (var e in room.exits) {
+            write(" " + e.direction);
+        }
+        print();
+    }
+
+    mut void take() {
+        if (rooms[here].dark && !hasLamp()) {
+            print("You fumble around in the dark.");
+            return;
+        }
+        if (rooms[here].items.length == 0) {
+            print("There is nothing here.");
+            return;
+        }
+        while (rooms[here].items.length > 0) {
+            Item it = rooms[here].items.pop();
+            print("Taken: " + itemName(ref it));
+            if (it is Coin(int v)) {
+                gold += v;
+            } else {
+                inventory.add(it);
+            }
+        }
+    }
+
+    mut void go(string direction) {
+        for (int i = 0; i < rooms[here].exits.length; i++) {
+            Exit e = rooms[here].exits[i].clone();
+            if (e.direction != direction) {
+                continue;
+            }
+            if (e.lockedBy is string door) {
+                if (!hasKeyFor(ref door)) {
+                    print("The door is locked.");
+                    return;
+                }
+                print("You unlock the door.");
+            }
+            here = e.target;
+            look();
+            if (rooms[here].name == "Vault") {
+                take();
+                won = true;
+            }
+            return;
+        }
+        print("You can't go " + direction + ".");
+    }
+}
+
+int main() {
+    Game game = new Game { rooms = buildWorld(), inventory = List<Item>() };
+    print("Welcome! Commands: look, take, go <dir>, inv, quit");
+    game.look();
+    while (!game.won) {
+        write("> ");
+        string? line = readLine();
+        if (!(line is string text)) {
+            break;
+        }
+        string[] words = text.trim().toLower().split(" ");
+        string verb = words[0].clone();
+        if (verb == "look") {
+            game.look();
+        } else if (verb == "take") {
+            game.take();
+        } else if (verb == "go" && words.length > 1) {
+            game.go(words[1].clone());
+        } else if (verb == "n" || verb == "s" || verb == "e" || verb == "w") {
+            switch (verb) {
+                case "n": game.go("north");
+                case "s": game.go("south");
+                case "e": game.go("east");
+                default:  game.go("west");
+            }
+        } else if (verb == "inv") {
+            print($"You carry {game.inventory.length} items and {game.gold} gold.");
+        } else if (verb == "quit") {
+            break;
+        } else if (verb != "") {
+            print("I don't understand '" + verb + "'.");
+        }
+    }
+    print($"Game over. Gold: {game.gold}");
+    return 0;
+}

@@ -1,0 +1,45 @@
+// Phase 3 milestone: open a raylib window and move a square with the keyboard.
+using c "raylib.h";
+
+struct Square {
+    Vector2 pos;
+    float size = 50;
+    float speed = 300;
+
+    mut void update(float dt) {
+        if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) { pos.x += speed * dt; }
+        if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A))  { pos.x -= speed * dt; }
+        if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S))  { pos.y += speed * dt; }
+        if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W))    { pos.y -= speed * dt; }
+        float maxX = (float)GetScreenWidth() - size;
+        float maxY = (float)GetScreenHeight() - size;
+        if (pos.x < 0) { pos.x = 0; }
+        if (pos.y < 0) { pos.y = 0; }
+        if (pos.x > maxX) { pos.x = maxX; }
+        if (pos.y > maxY) { pos.y = maxY; }
+    }
+
+    void draw() {
+        DrawRectangleV(pos, new Vector2 { x = size, y = size }, MAROON);
+    }
+}
+
+int main() {
+    InitWindow(800, 450, "Hello from Axon!");
+    SetTargetFPS(60);
+    Square player = new Square { pos = new Vector2 { x = 375, y = 200 } };
+
+    while (!WindowShouldClose()) {
+        player.update(GetFrameTime());
+
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
+        DrawText("Move the square with the arrow keys", 190, 20, 20, DARKGRAY);
+        DrawText($"x={(int)player.pos.x} y={(int)player.pos.y}", 10, 420, 20, GRAY);
+        player.draw();
+        EndDrawing();
+    }
+
+    CloseWindow();
+    return 0;
+}

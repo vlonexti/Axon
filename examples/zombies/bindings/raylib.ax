@@ -1,0 +1,81 @@
+// Axon bindings for raylib 5.x (a subset: windows, drawing, input, timing).
+// Add more lines as you need them; each one is just the C declaration in Axon types.
+extern "raylib.h" {
+    struct Vector2 { float x; float y; }
+    struct Color { byte r, g, b, a; }
+    struct Rectangle { float x; float y; float width; float height; }
+
+    // colors
+    const Color LIGHTGRAY;
+    const Color GRAY;
+    const Color DARKGRAY;
+    const Color YELLOW;
+    const Color GOLD;
+    const Color ORANGE;
+    const Color RED;
+    const Color MAROON;
+    const Color GREEN;
+    const Color LIME;
+    const Color DARKGREEN;
+    const Color SKYBLUE;
+    const Color BLUE;
+    const Color DARKBLUE;
+    const Color PURPLE;
+    const Color BROWN;
+    const Color WHITE;
+    const Color BLACK;
+    const Color RAYWHITE;
+
+    // keys and mouse buttons
+    const int KEY_SPACE;
+    const int KEY_R;
+    const int KEY_TAB;
+    const int KEY_ESCAPE;
+    const int KEY_ENTER;
+    const int KEY_RIGHT;
+    const int KEY_LEFT;
+    const int KEY_DOWN;
+    const int KEY_UP;
+    const int KEY_W;
+    const int KEY_A;
+    const int KEY_S;
+    const int KEY_D;
+    const int MOUSE_BUTTON_LEFT;
+    const int MOUSE_BUTTON_RIGHT;
+
+    // window
+    void InitWindow(int width, int height, string title);
+    bool WindowShouldClose();
+    void CloseWindow();
+    void SetTargetFPS(int fps);
+    int GetScreenWidth();
+    int GetScreenHeight();
+    float GetFrameTime();
+    double GetTime();
+
+    // drawing
+    void BeginDrawing();
+    void EndDrawing();
+    void ClearBackground(Color color);
+    void DrawText(string text, int x, int y, int fontSize, Color color);
+    int MeasureText(string text, int fontSize);
+    void DrawFPS(int x, int y);
+    void DrawRectangle(int x, int y, int width, int height, Color color);
+    void DrawRectangleV(Vector2 position, Vector2 size, Color color);
+    void DrawRectangleRec(Rectangle rec, Color color);
+    void DrawRectangleLines(int x, int y, int width, int height, Color color);
+    void DrawCircle(int centerX, int centerY, float radius, Color color);
+    void DrawCircleV(Vector2 center, float radius, Color color);
+    void DrawLine(int startX, int startY, int endX, int endY, Color color);
+
+    // input
+    bool IsKeyDown(int key);
+    bool IsKeyPressed(int key);
+    bool IsMouseButtonPressed(int button);
+    bool IsMouseButtonDown(int button);
+    Vector2 GetMousePosition();
+
+    // misc
+    int GetRandomValue(int min, int max);
+    bool CheckCollisionRecs(Rectangle rec1, Rectangle rec2);
+}

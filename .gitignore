@@ -1,0 +1,9 @@
+bin/
+build/
+*.obj
+*.pdb
+*.ilk
+tools/
+.axon/
+axonc/tests/llvm-test.log
+axonc/tests/raylib_generated.ax

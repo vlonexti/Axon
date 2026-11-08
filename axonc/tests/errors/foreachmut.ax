@@ -1,0 +1,2 @@
+// error: while a `foreach` is looping over it
+int main() { List<int> xs = [1, 2]; foreach (int x in xs) { xs.add(x); } return 0; }

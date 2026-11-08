@@ -1,0 +1,75 @@
+// Phase 4 milestone: a top-down zombie game. Entities live in List<Zombie>, List<Bullet> and
+// List<Box<Effect>>; nothing is freed by hand. Run `axon test --leak-check` to verify that.
+using c "raylib.h";
+using game.world;
+
+const int WIDTH = 960;
+const int HEIGHT = 600;
+
+Color shade(int r, int g, int b, int a) {
+    return new Color { r = (byte)r, g = (byte)g, b = (byte)b, a = (byte)a };
+}
+
+void draw(ref World w) {
+    ClearBackground(shade(34, 36, 40, 255));
+    foreach (var e in w.effects) {
+        Vec2 p = e.where();
+        Color c = e.isBlood() ? shade(120, 20, 20, e.alpha()) : shade(255, 230, 120, e.alpha());
+        DrawCircle((int)p.x, (int)p.y, (float)e.radius(), c);
+    }
+    foreach (var b in w.bullets) {
+        DrawCircle((int)b.pos.x, (int)b.pos.y, 3, YELLOW);
+    }
+    foreach (var z in w.zombies) {
+        DrawCircle((int)z.pos.x, (int)z.pos.y, 14, shade(90, 160, 70, 255));
+        DrawCircle((int)z.pos.x - 5, (int)z.pos.y - 4, 2, RED);
+        DrawCircle((int)z.pos.x + 5, (int)z.pos.y - 4, 2, RED);
+        if (z.hp < z.maxHp) {
+            int barW = 28 * z.hp / z.maxHp;
+            DrawRectangle((int)z.pos.x - 14, (int)z.pos.y - 22, 28, 4, DARKGRAY);
+            DrawRectangle((int)z.pos.x - 14, (int)z.pos.y - 22, barW, 4, GREEN);
+        }
+    }
+    bool blink = w.player.hurtTimer > 0 && (int)(w.player.hurtTimer * 10) % 2 == 0;
+    if (!blink) {
+        DrawCircle((int)w.player.pos.x, (int)w.player.pos.y, 15, SKYBLUE);
+        DrawCircle((int)w.player.pos.x, (int)w.player.pos.y, 6, DARKBLUE);
+    }
+    DrawText($"Score {w.score}   Wave {w.wave}   Zombies {w.zombies.length}", 16, 14, 22, RAYWHITE);
+    for (int i = 0; i < w.player.hp; i++) {
+        DrawRectangle(WIDTH - 30 - i * 26, 16, 20, 20, RED);
+    }
+    if (w.over) {
+        string msg = "GAME OVER - press R to restart";
+        DrawText(msg, (WIDTH - MeasureText(msg, 36)) / 2, HEIGHT / 2 - 18, 36, RAYWHITE);
+    }
+    DrawText("WASD to move, mouse to aim, click or space to shoot", 16, HEIGHT - 30, 18, GRAY);
+}
+
+int main() {
+    InitWindow(WIDTH, HEIGHT, "Axon Zombies");
+    SetTargetFPS(60);
+    World world = newWorld(WIDTH, HEIGHT);
+
+    while (!WindowShouldClose()) {
+        if (world.over && IsKeyPressed(KEY_R)) {
+            world = newWorld(WIDTH, HEIGHT);
+        }
+        Vector2 mouse = GetMousePosition();
+        Input input = new Input {
+            up = IsKeyDown(KEY_W) || IsKeyDown(KEY_UP),
+            down = IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN),
+            left = IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT),
+            right = IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT),
+            shoot = IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsKeyDown(KEY_SPACE),
+            aim = vec(mouse.x, mouse.y),
+        };
+        world.update(GetFrameTime(), ref input);
+
+        BeginDrawing();
+        draw(ref world);
+        EndDrawing();
+    }
+    CloseWindow();
+    return 0;
+}

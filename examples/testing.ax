@@ -1,0 +1,44 @@
+// Run with: axon test testing.ax
+int clampScore(int s) {
+    if (s < 0) {
+        return 0;
+    }
+    if (s > 100) {
+        return 100;
+    }
+    return s;
+}
+
+@test
+void clampsLow() {
+    assert(clampScore(-5) == 0);
+}
+
+@test
+void clampsHigh() {
+    assert(clampScore(250) == 100, "scores above 100 are capped");
+}
+
+@test
+void listsWork() {
+    List<int> xs = [1, 2, 3];
+    xs.add(4);
+    assert(xs.length == 4);
+    assert(xs[3] == 4);
+}
+
+@test
+void thisOneFails() {
+    assert("abc".toUpper() == "abc", "toUpper should change the text");
+}
+
+@test
+void outOfBounds() {
+    int[] xs = [1, 2, 3];
+    print(xs[5]);
+}
+
+int main() {
+    print(clampScore(42));
+    return 0;
+}

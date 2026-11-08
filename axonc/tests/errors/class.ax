@@ -1,0 +1,2 @@
+// error: Axon has no classes
+class Foo { }

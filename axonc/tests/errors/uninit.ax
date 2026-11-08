@@ -1,0 +1,2 @@
+// error: must be given a value
+int main() { int x; return 0; }

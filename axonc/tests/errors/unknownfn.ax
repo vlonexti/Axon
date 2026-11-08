@@ -1,0 +1,2 @@
+// error: unknown function `prnt`
+int main() { prnt("hi"); return 0; }

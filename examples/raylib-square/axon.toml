@@ -1,0 +1,9 @@
+# axon.toml
+name = "square"
+version = "0.1.0"
+entry = "src/main.ax"
+
+[libraries]
+# Download raylib for Windows (MSVC) from https://github.com/raysan5/raylib/releases
+# and unpack it into libs/raylib so that libs/raylib/include/raylib.h exists.
+raylib = { include = "libs/raylib/include", lib = "libs/raylib/lib", link = ["raylib", "winmm", "gdi32", "user32", "shell32", "opengl32"] }

@@ -1,0 +1,3 @@
+// error: doesn't return a value on every path
+int f(int x) { if (x > 0) { return 1; } }
+int main() { return f(1); }

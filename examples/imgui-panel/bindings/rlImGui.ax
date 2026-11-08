@@ -1,0 +1,7 @@
+// Axon bindings for rlImGui, the raylib backend for Dear ImGui.
+extern "rlImGui.h" {
+    void rlImGuiSetup(bool darkTheme);
+    void rlImGuiBegin();
+    void rlImGuiEnd();
+    void rlImGuiShutdown();
+}

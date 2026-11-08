@@ -1,0 +1,56 @@
+// game/world.ax - rooms, items and the map.
+
+enum Item {
+    Key(string opens),
+    Lamp,
+    Coin(int value),
+}
+
+string itemName(ref Item item) {
+    switch (item) {
+        case Key(var opens): return "a key for the " + opens;
+        case Lamp: return "a lamp";
+        case Coin(int value): return $"a coin worth {value}";
+    }
+}
+
+struct Exit {
+    string direction;
+    int target;
+    string? lockedBy;   // needs a key that opens this
+}
+
+struct Room {
+    string name;
+    string description;
+    bool dark = false;
+    List<Exit> exits;
+    List<Item> items;
+}
+
+List<Room> buildWorld() {
+    List<Room> rooms = List<Room>();
+    rooms.add(new Room {
+        name = "Hall",
+        description = "A dusty hall. Doors lead north and east.",
+        exits = [
+            new Exit { direction = "north", target = 1, lockedBy = none },
+            new Exit { direction = "east", target = 2, lockedBy = "vault" },
+        ],
+        items = [Item.Lamp],
+    });
+    rooms.add(new Room {
+        name = "Library",
+        description = "Shelves of rotting books. A draft comes from the south.",
+        dark = true,
+        exits = [new Exit { direction = "south", target = 0, lockedBy = none }],
+        items = [Item.Key("vault"), Item.Coin(5)],
+    });
+    rooms.add(new Room {
+        name = "Vault",
+        description = "Gold glitters everywhere. You win!",
+        exits = [new Exit { direction = "west", target = 0, lockedBy = none }],
+        items = [Item.Coin(100)],
+    });
+    return rooms;
+}

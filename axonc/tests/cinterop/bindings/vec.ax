@@ -1,0 +1,16 @@
+// Bindings for libs/vec/include/vec.h
+extern "vec.h" {
+    struct Vec2 { float x; float y; }
+    struct Color { byte r, g, b, a; }
+
+    const Vec2 ORIGIN;
+    const Color RED;
+    const int KEY_SPACE;
+
+    Vec2 vec_add(Vec2 a, Vec2 b);
+    float vec_dot(Vec2 a, Vec2 b);
+    void vec_scale(mut ref Vec2 v, float k);
+    int greet(string name);
+    string color_name(Color c);
+    bool is_key_down(int key);
+}

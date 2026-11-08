@@ -1,0 +1,2 @@
+// error: doesn't fit in a `byte`
+int main() { byte b = 300; return 0; }

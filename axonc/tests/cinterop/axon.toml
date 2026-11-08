@@ -1,0 +1,5 @@
+name = "cinterop"
+entry = "src/main.ax"
+
+[libraries]
+vec = { include = "libs/vec/include", link = [] }

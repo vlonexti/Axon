@@ -1,0 +1,83 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Axon",
+  "scopeName": "source.axon",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#declarations" },
+    { "include": "#types" },
+    { "include": "#calls" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.double-slash.axon", "match": "//.*$" },
+        { "name": "comment.block.axon", "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.interpolated.axon",
+          "begin": "\\$\"",
+          "end": "\"",
+          "patterns": [
+            { "name": "constant.character.escape.axon", "match": "\\\\.|\\{\\{|\\}\\}" },
+            {
+              "name": "meta.interpolation.axon",
+              "begin": "\\{",
+              "end": "\\}",
+              "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.axon" } },
+              "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.axon" } },
+              "patterns": [{ "include": "$self" }]
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.axon",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [{ "name": "constant.character.escape.axon", "match": "\\\\(u\\{[0-9a-fA-F]+\\}|x[0-9a-fA-F]{2}|.)" }]
+        },
+        { "name": "string.quoted.single.axon", "match": "'(\\\\.|[^'\\\\])'" }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.hex.axon", "match": "\\b0[xX][0-9a-fA-F_]+[lL]?\\b" },
+        { "name": "constant.numeric.binary.axon", "match": "\\b0[bB][01_]+[lL]?\\b" },
+        { "name": "constant.numeric.axon", "match": "\\b[0-9][0-9_]*(\\.[0-9_]+)?([eE][+-]?[0-9]+)?[fFdDlL]?\\b" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        { "name": "keyword.control.axon", "match": "\\b(if|else|while|do|for|foreach|in|return|break|continue|switch|case|default|try)\\b" },
+        { "name": "keyword.other.axon", "match": "\\b(using|extern|struct|interface|enum|extend|mut|ref|new|is|var|const|private)\\b" },
+        { "name": "constant.language.axon", "match": "\\b(true|false|none)\\b" },
+        { "name": "variable.language.this.axon", "match": "\\bthis\\b" },
+        { "name": "storage.modifier.attribute.axon", "match": "@[A-Za-z_]\\w*" }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(struct|interface|enum)\\s+([A-Za-z_]\\w*)",
+          "captures": { "1": { "name": "keyword.other.axon" }, "2": { "name": "entity.name.type.axon" } }
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        { "name": "storage.type.primitive.axon", "match": "\\b(int|long|byte|float|double|bool|char|string|void)\\b" },
+        { "name": "support.type.builtin.axon", "match": "\\b(List|Map|Box|Result|Ok|Err)\\b" },
+        { "name": "entity.name.type.axon", "match": "\\b[A-Z]\\w*\\b" }
+      ]
+    },
+    "calls": {
+      "patterns": [{ "name": "entity.name.function.axon", "match": "\\b[a-z_]\\w*(?=\\s*(<[^>]*>)?\\()" }]
+    }
+  }
+}

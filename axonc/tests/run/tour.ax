@@ -1,0 +1,188 @@
+// A tour of the Axon language: everything from the design doc in one file.
+using std.math;
+
+const int MAX_PLAYERS = 4;
+
+interface Damageable {
+    mut void takeDamage(int amount);
+}
+
+interface Printable {
+    string toText();
+}
+
+struct Player : Damageable, Printable {
+    string name;
+    int health = 100;
+
+    mut void takeDamage(int amount) {
+        health -= amount;
+        if (health < 0) {
+            health = 0;
+        }
+    }
+
+    int getHealth() {
+        return health;
+    }
+
+    string toText() {
+        return $"{name} ({health} hp)";
+    }
+}
+
+struct Zombie : Damageable {
+    int hp;
+
+    mut void takeDamage(int amount) {
+        hp -= amount * 2;
+    }
+}
+
+extend int : Printable {
+    string toText() {
+        return "Number: " + this;
+    }
+}
+
+enum Item {
+    Sword(int damage),
+    Potion(int heal),
+    Empty,
+}
+
+struct ParseError {
+    string message;
+}
+
+void hurt(mut ref Damageable target, int amount) {
+    target.takeDamage(amount);
+}
+
+void show(ref Printable p) {
+    print(p.toText());
+}
+
+int add(int a, int b) {
+    return a + b;
+}
+
+Player? findPlayer(ref List<Player> players, string name) {
+    foreach (var p in players) {
+        if (p.name == name) {
+            return p.clone();
+        }
+    }
+    return none;
+}
+
+Result<int, ParseError> parseScore(string text) {
+    if (text.toInt() is int n) {
+        return Ok(n);
+    }
+    return Err(new ParseError { message = "not a number: " + text });
+}
+
+Result<int, ParseError> totalScore(string a, string b) {
+    int x = try parseScore(a);
+    int y = try parseScore(b);
+    return Ok(x + y);
+}
+
+string describe(ref Item item) {
+    switch (item) {
+        case Sword(int dmg): return "Sword does " + dmg;
+        case Potion(int h):  return "Heals " + h;
+        case Empty:          return "Nothing";
+    }
+}
+
+void keep(Player p) {
+    print("keeping " + p.name);
+}
+
+int main() {
+    // variables and control flow
+    int score = 0;
+    var name = "Steve";
+    for (int i = 0; i < 10; i++) {
+        score += add(i, 1);
+    }
+    while (score > 50) {
+        score -= 5;
+    }
+    if (score == 50) {
+        print("Exactly 50!");
+    } else {
+        print("Score: " + score);
+    }
+    foreach (string s in ["a", "b", "c"]) {
+        write(s);
+    }
+    print();
+
+    // structs, mut methods, interfaces
+    Player p = new Player { name = name, health = 80 };
+    p.takeDamage(25);
+    print(p.getHealth());
+    Zombie z = new Zombie { hp = 50 };
+    hurt(mut ref p, 5);
+    hurt(mut ref z, 5);
+    print($"player {p.health}, zombie {z.hp}");
+    show(ref p);
+    int seven = 7;
+    show(ref seven);
+    print(p);
+
+    // enums + switch
+    Item[] items = [Item.Sword(10), Item.Potion(5), Item.Empty];
+    foreach (var it in items) {
+        print(describe(ref it));
+    }
+
+    // optionals
+    List<Player> players = List<Player>();
+    players.add(new Player { name = "Zach" });
+    players.add(new Player { name = "Ana", health = 70 });
+    Player? maybe = findPlayer(ref players, "Zach");
+    if (maybe is Player found) {
+        print("found " + found.name);
+    }
+    Player? nobody = findPlayer(ref players, "Bob");
+    print(nobody == none);
+    Player fallback = nobody ?? new Player { name = "Default" };
+    print(fallback.name);
+
+    // errors as values
+    switch (totalScore("12", "30")) {
+        case Ok(int total): print("total " + total);
+        case Err(ParseError e): print("error: " + e.message);
+    }
+    switch (totalScore("12", "x")) {
+        case Ok(int total): print("total " + total);
+        case Err(ParseError e): print("error: " + e.message);
+    }
+
+    // strings
+    string text = "  Hello, Axon  ";
+    string t = text.trim();
+    print(t.toUpper() + " " + t.length);
+    string[] parts = "a,b,c".split(",");
+    print(parts.length);
+    print(t.contains("Axon"));
+
+    // lists
+    List<int> nums = [3, 1, 4, 1, 5];
+    nums.add(9);
+    int sum = 0;
+    foreach (int n in nums) {
+        sum += n;
+    }
+    print($"sum={sum} len={nums.length} max={max(nums[0], nums[2])}");
+    print(sqrt(16.0));
+
+    // ownership: keep() takes p, so p can't be used afterwards
+    keep(p);
+    print(MAX_PLAYERS);
+    return 0;
+}

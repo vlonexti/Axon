@@ -1,0 +1,35 @@
+using c "vec.h" as v;
+
+interface Printable {
+    string toText();
+}
+
+// a C struct joins an Axon interface
+extend v.Vec2 : Printable {
+    string toText() {
+        return $"({x}, {y})";
+    }
+}
+
+void show(ref Printable p) {
+    print(p.toText());
+}
+
+int main() {
+    v.Vec2 a = new v.Vec2 { x = 1.5f, y = 2 };
+    v.Vec2 b = v.vec_add(a, v.ORIGIN);
+    b = v.vec_add(b, new v.Vec2 { x = 0.5f, y = 1 });
+    show(ref b);
+    print(v.vec_dot(a, b));
+    v.vec_scale(mut ref b, 2);
+    show(ref b);
+    string name = "Steve";
+    int n = v.greet(name);
+    print(name + " has " + n + " letters");
+    print(v.color_name(v.RED));
+    print(v.RED.r);
+    if (v.is_key_down(v.KEY_SPACE)) {
+        print("space is down");
+    }
+    return 0;
+}

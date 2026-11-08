@@ -1,0 +1,1252 @@
+// axs - an Axon compiler written in Axon (self-hosting).
+//
+// It compiles the core of Axon to C: structs, functions, int / bool / byte / string, List<T>,
+// ref and mut ref parameters, constants, if / while / for, and the string and list operations.
+// It is itself written only in that core, so it can compile its own source:
+//
+//     axon build axs.ax                 (stage 0: the C++ compiler builds axs)
+//     axs axs.ax axs1.c                 (stage 1: axs compiles itself)
+//     cl axs1.c  ->  axs1 axs.ax axs2.c (stage 2: and again; axs1.c and axs2.c must be identical)
+//
+// axs checks names and types, but not ownership: compile with `axon check` first for that.
+using std.io;
+using std.os;
+
+// ---------------------------------------------------------------- tokens
+
+const int T_EOF = 0;
+const int T_IDENT = 1;
+const int T_INT = 2;
+const int T_STR = 3;
+const int T_CHAR = 4;
+const int T_SYM = 5;
+
+struct Token {
+    int kind;
+    string text;
+    int num;
+    int line;
+}
+
+void fail(int line, string msg) {
+    print("axs: error on line " + line + ": " + msg);
+    exit(1);
+}
+
+bool isDigitB(byte c) {
+    return c >= 48 && c <= 57;
+}
+
+bool isAlphaB(byte c) {
+    return (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c == 95;
+}
+
+Token tok(int kind, string text, int num, int line) {
+    return new Token { kind = kind, text = text, num = num, line = line };
+}
+
+// the value of the escape `\c`, as text and as a number
+string escapeText(byte c) {
+    if (c == 110) {
+        return "\n";
+    }
+    if (c == 116) {
+        return "\t";
+    }
+    if (c == 114) {
+        return "\r";
+    }
+    if (c == 48) {
+        return "\0";
+    }
+    if (c == 34) {
+        return "\"";
+    }
+    if (c == 39) {
+        return "'";
+    }
+    return "\\";
+}
+
+int escapeCode(byte c) {
+    if (c == 110) {
+        return 10;
+    }
+    if (c == 116) {
+        return 9;
+    }
+    if (c == 114) {
+        return 13;
+    }
+    if (c == 48) {
+        return 0;
+    }
+    return c;
+}
+
+bool isTwoCharSym(string s) {
+    return s == "==" || s == "!=" || s == "<=" || s == ">=" || s == "&&" || s == "||" || s == "+=" || s == "-=";
+}
+
+List<Token> lex(string src) {
+    List<Token> toks = List<Token>();
+    int i = 0;
+    int line = 1;
+    int n = src.length;
+    while (i < n) {
+        byte c = src.byteAt(i);
+        if (c == 10) {
+            line += 1;
+            i += 1;
+            continue;
+        }
+        if (c == 32 || c == 9 || c == 13) {
+            i += 1;
+            continue;
+        }
+        if (c == 47 && i + 1 < n && src.byteAt(i + 1) == 47) {
+            while (i < n && src.byteAt(i) != 10) {
+                i += 1;
+            }
+            continue;
+        }
+        if (c == 47 && i + 1 < n && src.byteAt(i + 1) == 42) {
+            i += 2;
+            while (i + 1 < n && !(src.byteAt(i) == 42 && src.byteAt(i + 1) == 47)) {
+                if (src.byteAt(i) == 10) {
+                    line += 1;
+                }
+                i += 1;
+            }
+            i += 2;
+            continue;
+        }
+        int start = i;
+        if (isAlphaB(c)) {
+            while (i < n && (isAlphaB(src.byteAt(i)) || isDigitB(src.byteAt(i)))) {
+                i += 1;
+            }
+            toks.add(tok(T_IDENT, src.substring(start, i - start), 0, line));
+            continue;
+        }
+        if (isDigitB(c)) {
+            int v = 0;
+            while (i < n && isDigitB(src.byteAt(i))) {
+                v = v * 10 + (src.byteAt(i) - 48);
+                i += 1;
+            }
+            toks.add(tok(T_INT, src.substring(start, i - start), v, line));
+            continue;
+        }
+        if (c == 34) {
+            string text = "";
+            i += 1;
+            while (i < n && src.byteAt(i) != 34) {
+                if (src.byteAt(i) == 92) {
+                    text += escapeText(src.byteAt(i + 1));
+                    i += 2;
+                } else {
+                    text += src.substring(i, 1);
+                    i += 1;
+                }
+            }
+            i += 1;
+            toks.add(tok(T_STR, text, 0, line));
+            continue;
+        }
+        if (c == 39) {
+            int v = 0;
+            if (src.byteAt(i + 1) == 92) {
+                v = escapeCode(src.byteAt(i + 2));
+                i += 4;
+            } else {
+                v = src.byteAt(i + 1);
+                i += 3;
+            }
+            toks.add(tok(T_CHAR, "", v, line));
+            continue;
+        }
+        if (i + 1 < n && isTwoCharSym(src.substring(i, 2))) {
+            toks.add(tok(T_SYM, src.substring(i, 2), 0, line));
+            i += 2;
+            continue;
+        }
+        toks.add(tok(T_SYM, src.substring(i, 1), 0, line));
+        i += 1;
+    }
+    toks.add(tok(T_EOF, "", 0, line));
+    return toks;
+}
+
+// ---------------------------------------------------------------- syntax tree
+
+const int N_STRUCT = 1;
+const int N_FIELD = 2;
+const int N_FUNC = 3;
+const int N_PARAM = 4;
+const int N_CONST = 5;
+const int N_BLOCK = 10;
+const int N_VAR = 11;
+const int N_ASSIGN = 12;
+const int N_IF = 13;
+const int N_WHILE = 14;
+const int N_FOR = 15;
+const int N_RETURN = 16;
+const int N_BREAK = 17;
+const int N_CONTINUE = 18;
+const int N_EXPR = 19;
+const int N_EMPTY = 20;
+const int N_INT = 30;
+const int N_STR = 31;
+const int N_CHAR = 32;
+const int N_BOOL = 33;
+const int N_NAME = 34;
+const int N_DOT = 35;
+const int N_CALL = 36;
+const int N_MCALL = 37;
+const int N_INDEX = 38;
+const int N_BIN = 39;
+const int N_UN = 40;
+const int N_NEW = 41;
+const int N_INIT = 42;
+const int N_LISTNEW = 43;
+const int N_REF = 44;
+
+struct Node {
+    int kind;
+    string text;
+    string type;
+    int num;
+    int line;
+    List<Node> kids;
+}
+
+Node mk(int kind, string text, int line) {
+    return new Node { kind = kind, text = text, type = "", num = 0, line = line, kids = List<Node>() };
+}
+
+// ---------------------------------------------------------------- parser
+
+struct Parser {
+    List<Token> toks;
+    int pos;
+}
+
+int pkind(ref Parser p) {
+    return p.toks[p.pos].kind;
+}
+
+int pline(ref Parser p) {
+    return p.toks[p.pos].line;
+}
+
+string ptext(ref Parser p) {
+    return p.toks[p.pos].text.clone();
+}
+
+bool isSym(ref Parser p, string s) {
+    return p.toks[p.pos].kind == T_SYM && p.toks[p.pos].text == s;
+}
+
+bool isWord(ref Parser p, string s) {
+    return p.toks[p.pos].kind == T_IDENT && p.toks[p.pos].text == s;
+}
+
+bool symAt(ref Parser p, int at, string s) {
+    return p.toks[at].kind == T_SYM && p.toks[at].text == s;
+}
+
+void expect(mut ref Parser p, string s) {
+    if (!isSym(ref p, s.clone())) {
+        fail(pline(ref p), "expected '" + s + "' but found '" + ptext(ref p) + "'");
+    }
+    p.pos += 1;
+}
+
+string expectIdent(mut ref Parser p) {
+    if (pkind(ref p) != T_IDENT) {
+        fail(pline(ref p), "expected a name but found '" + ptext(ref p) + "'");
+    }
+    string s = ptext(ref p);
+    p.pos += 1;
+    return s;
+}
+
+string parseType(mut ref Parser p) {
+    string name = expectIdent(mut ref p);
+    if (name == "List") {
+        expect(mut ref p, "<");
+        string inner = parseType(mut ref p);
+        expect(mut ref p, ">");
+        return "List<" + inner + ">";
+    }
+    return name;
+}
+
+// is the statement at the cursor a variable declaration (`Type name = ...`)?
+bool looksLikeDecl(ref Parser p) {
+    if (pkind(ref p) != T_IDENT) {
+        return false;
+    }
+    int at = p.pos + 1;
+    if (isWord(ref p, "List") && symAt(ref p, at, "<")) {
+        int depth = 0;
+        while (p.toks[at].kind != T_EOF) {
+            if (symAt(ref p, at, "<")) {
+                depth += 1;
+            }
+            if (symAt(ref p, at, ">")) {
+                depth -= 1;
+                if (depth == 0) {
+                    return p.toks[at + 1].kind == T_IDENT;
+                }
+            }
+            at += 1;
+        }
+        return false;
+    }
+    return p.toks[at].kind == T_IDENT;
+}
+
+int precOf(ref Parser p) {
+    if (pkind(ref p) != T_SYM) {
+        return 0;
+    }
+    string s = ptext(ref p);
+    if (s == "||") {
+        return 1;
+    }
+    if (s == "&&") {
+        return 2;
+    }
+    if (s == "==" || s == "!=") {
+        return 3;
+    }
+    if (s == "<" || s == ">" || s == "<=" || s == ">=") {
+        return 4;
+    }
+    if (s == "+" || s == "-") {
+        return 5;
+    }
+    if (s == "*" || s == "/" || s == "%") {
+        return 6;
+    }
+    return 0;
+}
+
+Node parseExpr(mut ref Parser p, int minPrec) {
+    Node left = parseUnary(mut ref p);
+    while (precOf(ref p) >= minPrec && precOf(ref p) > 0) {
+        int prec = precOf(ref p);
+        Node b = mk(N_BIN, ptext(ref p), pline(ref p));
+        p.pos += 1;
+        Node right = parseExpr(mut ref p, prec + 1);
+        b.kids.add(left);
+        b.kids.add(right);
+        left = b;
+    }
+    return left;
+}
+
+Node parseUnary(mut ref Parser p) {
+    int line = pline(ref p);
+    if (isSym(ref p, "!") || isSym(ref p, "-")) {
+        Node u = mk(N_UN, ptext(ref p), line);
+        p.pos += 1;
+        u.kids.add(parseUnary(mut ref p));
+        return u;
+    }
+    if (isWord(ref p, "ref")) {
+        p.pos += 1;
+        Node r = mk(N_REF, "", line);
+        r.num = 1;
+        r.kids.add(parseUnary(mut ref p));
+        return r;
+    }
+    if (isWord(ref p, "mut")) {
+        p.pos += 2;
+        Node r = mk(N_REF, "", line);
+        r.num = 2;
+        r.kids.add(parseUnary(mut ref p));
+        return r;
+    }
+    return parsePostfix(mut ref p, parsePrimary(mut ref p));
+}
+
+void parseArgs(mut ref Parser p, mut ref Node call) {
+    expect(mut ref p, "(");
+    if (!isSym(ref p, ")")) {
+        call.kids.add(parseExpr(mut ref p, 1));
+        while (isSym(ref p, ",")) {
+            p.pos += 1;
+            call.kids.add(parseExpr(mut ref p, 1));
+        }
+    }
+    expect(mut ref p, ")");
+}
+
+Node parsePostfix(mut ref Parser p, Node e) {
+    Node cur = e;
+    while (true) {
+        int line = pline(ref p);
+        if (isSym(ref p, ".")) {
+            p.pos += 1;
+            string name = expectIdent(mut ref p);
+            if (isSym(ref p, "(")) {
+                Node m = mk(N_MCALL, name, line);
+                m.kids.add(cur);
+                parseArgs(mut ref p, mut ref m);
+                cur = m;
+            } else {
+                Node d = mk(N_DOT, name, line);
+                d.kids.add(cur);
+                cur = d;
+            }
+        } else if (isSym(ref p, "[")) {
+            p.pos += 1;
+            Node ix = mk(N_INDEX, "", line);
+            ix.kids.add(cur);
+            ix.kids.add(parseExpr(mut ref p, 1));
+            expect(mut ref p, "]");
+            cur = ix;
+        } else {
+            return cur;
+        }
+    }
+    return cur;
+}
+
+Node parsePrimary(mut ref Parser p) {
+    int line = pline(ref p);
+    int k = pkind(ref p);
+    if (k == T_INT) {
+        Node n = mk(N_INT, ptext(ref p), line);
+        n.num = p.toks[p.pos].num;
+        p.pos += 1;
+        return n;
+    }
+    if (k == T_STR) {
+        Node s = mk(N_STR, ptext(ref p), line);
+        p.pos += 1;
+        return s;
+    }
+    if (k == T_CHAR) {
+        Node c = mk(N_CHAR, "", line);
+        c.num = p.toks[p.pos].num;
+        p.pos += 1;
+        return c;
+    }
+    if (isSym(ref p, "(")) {
+        p.pos += 1;
+        Node inner = parseExpr(mut ref p, 1);
+        expect(mut ref p, ")");
+        return inner;
+    }
+    if (k != T_IDENT) {
+        fail(line, "expected an expression but found '" + ptext(ref p) + "'");
+    }
+    string name = expectIdent(mut ref p);
+    if (name == "true" || name == "false") {
+        Node b = mk(N_BOOL, name.clone(), line);
+        if (name == "true") {
+            b.num = 1;
+        }
+        return b;
+    }
+    if (name == "new") {
+        Node lit = mk(N_NEW, expectIdent(mut ref p), line);
+        expect(mut ref p, "{");
+        while (!isSym(ref p, "}")) {
+            Node init = mk(N_INIT, expectIdent(mut ref p), pline(ref p));
+            expect(mut ref p, "=");
+            init.kids.add(parseExpr(mut ref p, 1));
+            lit.kids.add(init);
+            if (isSym(ref p, ",")) {
+                p.pos += 1;
+            }
+        }
+        expect(mut ref p, "}");
+        return lit;
+    }
+    if (name == "List" && isSym(ref p, "<")) {
+        p.pos += 1;
+        Node ln = mk(N_LISTNEW, "", line);
+        ln.type = "List<" + parseType(mut ref p) + ">";
+        expect(mut ref p, ">");
+        expect(mut ref p, "(");
+        expect(mut ref p, ")");
+        return ln;
+    }
+    if (isSym(ref p, "(")) {
+        Node call = mk(N_CALL, name, line);
+        parseArgs(mut ref p, mut ref call);
+        return call;
+    }
+    return mk(N_NAME, name, line);
+}
+
+Node parseBlock(mut ref Parser p) {
+    Node b = mk(N_BLOCK, "", pline(ref p));
+    expect(mut ref p, "{");
+    while (!isSym(ref p, "}")) {
+        if (pkind(ref p) == T_EOF) {
+            fail(pline(ref p), "missing '}'");
+        }
+        b.kids.add(parseStmt(mut ref p));
+    }
+    expect(mut ref p, "}");
+    return b;
+}
+
+// a statement without its `;`: a declaration, an assignment or an expression
+Node parseSimple(mut ref Parser p) {
+    int line = pline(ref p);
+    if (looksLikeDecl(ref p)) {
+        string t = "";
+        if (isWord(ref p, "var")) {
+            p.pos += 1;
+        } else {
+            t = parseType(mut ref p);
+        }
+        Node v = mk(N_VAR, expectIdent(mut ref p), line);
+        v.type = t;
+        expect(mut ref p, "=");
+        v.kids.add(parseExpr(mut ref p, 1));
+        return v;
+    }
+    Node e = parseExpr(mut ref p, 1);
+    if (isSym(ref p, "=") || isSym(ref p, "+=") || isSym(ref p, "-=")) {
+        Node a = mk(N_ASSIGN, ptext(ref p), line);
+        p.pos += 1;
+        a.kids.add(e);
+        a.kids.add(parseExpr(mut ref p, 1));
+        return a;
+    }
+    Node s = mk(N_EXPR, "", line);
+    s.kids.add(e);
+    return s;
+}
+
+Node parseStmt(mut ref Parser p) {
+    int line = pline(ref p);
+    if (isSym(ref p, "{")) {
+        return parseBlock(mut ref p);
+    }
+    if (isWord(ref p, "if")) {
+        p.pos += 1;
+        Node n = mk(N_IF, "", line);
+        expect(mut ref p, "(");
+        n.kids.add(parseExpr(mut ref p, 1));
+        expect(mut ref p, ")");
+        n.kids.add(parseStmt(mut ref p));
+        if (isWord(ref p, "else")) {
+            p.pos += 1;
+            n.kids.add(parseStmt(mut ref p));
+        }
+        return n;
+    }
+    if (isWord(ref p, "while")) {
+        p.pos += 1;
+        Node w = mk(N_WHILE, "", line);
+        expect(mut ref p, "(");
+        w.kids.add(parseExpr(mut ref p, 1));
+        expect(mut ref p, ")");
+        w.kids.add(parseStmt(mut ref p));
+        return w;
+    }
+    if (isWord(ref p, "for")) {
+        p.pos += 1;
+        Node f = mk(N_FOR, "", line);
+        expect(mut ref p, "(");
+        if (isSym(ref p, ";")) {
+            f.kids.add(mk(N_EMPTY, "", line));
+        } else {
+            f.kids.add(parseSimple(mut ref p));
+        }
+        expect(mut ref p, ";");
+        if (isSym(ref p, ";")) {
+            f.kids.add(mk(N_EMPTY, "", line));
+        } else {
+            f.kids.add(parseExpr(mut ref p, 1));
+        }
+        expect(mut ref p, ";");
+        if (isSym(ref p, ")")) {
+            f.kids.add(mk(N_EMPTY, "", line));
+        } else {
+            f.kids.add(parseSimple(mut ref p));
+        }
+        expect(mut ref p, ")");
+        f.kids.add(parseStmt(mut ref p));
+        return f;
+    }
+    if (isWord(ref p, "return")) {
+        p.pos += 1;
+        Node r = mk(N_RETURN, "", line);
+        if (!isSym(ref p, ";")) {
+            r.kids.add(parseExpr(mut ref p, 1));
+        }
+        expect(mut ref p, ";");
+        return r;
+    }
+    if (isWord(ref p, "break") || isWord(ref p, "continue")) {
+        Node j = mk(N_BREAK, "", line);
+        if (isWord(ref p, "continue")) {
+            j.kind = N_CONTINUE;
+        }
+        p.pos += 1;
+        expect(mut ref p, ";");
+        return j;
+    }
+    Node s = parseSimple(mut ref p);
+    expect(mut ref p, ";");
+    return s;
+}
+
+Node parseProgram(mut ref Parser p) {
+    Node prog = mk(N_BLOCK, "", 1);
+    while (pkind(ref p) != T_EOF) {
+        int line = pline(ref p);
+        if (isWord(ref p, "using")) {
+            while (!isSym(ref p, ";")) {
+                p.pos += 1;
+            }
+            p.pos += 1;
+            continue;
+        }
+        if (isWord(ref p, "struct")) {
+            p.pos += 1;
+            Node s = mk(N_STRUCT, expectIdent(mut ref p), line);
+            expect(mut ref p, "{");
+            while (!isSym(ref p, "}")) {
+                string ft = parseType(mut ref p);
+                Node f = mk(N_FIELD, expectIdent(mut ref p), pline(ref p));
+                f.type = ft;
+                expect(mut ref p, ";");
+                s.kids.add(f);
+            }
+            expect(mut ref p, "}");
+            prog.kids.add(s);
+            continue;
+        }
+        if (isWord(ref p, "const")) {
+            p.pos += 1;
+            string ct = parseType(mut ref p);
+            Node c = mk(N_CONST, expectIdent(mut ref p), line);
+            c.type = ct;
+            expect(mut ref p, "=");
+            c.kids.add(parseExpr(mut ref p, 1));
+            expect(mut ref p, ";");
+            prog.kids.add(c);
+            continue;
+        }
+        string ret = parseType(mut ref p);
+        Node fn = mk(N_FUNC, expectIdent(mut ref p), line);
+        fn.type = ret;
+        expect(mut ref p, "(");
+        while (!isSym(ref p, ")")) {
+            int mode = 0;
+            if (isWord(ref p, "ref")) {
+                mode = 1;
+                p.pos += 1;
+            } else if (isWord(ref p, "mut")) {
+                mode = 2;
+                p.pos += 2;
+            }
+            string pt = parseType(mut ref p);
+            Node prm = mk(N_PARAM, expectIdent(mut ref p), pline(ref p));
+            prm.type = pt;
+            prm.num = mode;
+            fn.kids.add(prm);
+            if (isSym(ref p, ",")) {
+                p.pos += 1;
+            }
+        }
+        expect(mut ref p, ")");
+        fn.num = fn.kids.length;
+        fn.kids.add(parseBlock(mut ref p));
+        prog.kids.add(fn);
+    }
+    return prog;
+}
+
+// ---------------------------------------------------------------- checking and C generation
+
+struct Var {
+    string name;
+    string type;
+    int mode;
+}
+
+struct StructInfo {
+    string name;
+    List<string> fieldNames;
+    List<string> fieldTypes;
+}
+
+struct FuncInfo {
+    string name;
+    string ret;
+    List<string> paramTypes;
+}
+
+struct Gen {
+    string out;
+    List<Var> vars;
+    List<StructInfo> structs;
+    List<FuncInfo> funcs;
+    List<Var> consts;
+    List<string> emitted;
+}
+
+struct Ex {
+    string code;
+    string type;
+}
+
+Ex ex(string code, string type) {
+    return new Ex { code = code, type = type };
+}
+
+bool isList(string t) {
+    return t.length > 5 && t.substring(0, 5) == "List<";
+}
+
+string elemType(string t) {
+    return t.substring(5, t.length - 6);
+}
+
+int findStruct(ref Gen g, string name) {
+    for (int i = 0; i < g.structs.length; i += 1) {
+        if (g.structs[i].name == name) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int findFunc(ref Gen g, string name) {
+    for (int i = 0; i < g.funcs.length; i += 1) {
+        if (g.funcs[i].name == name) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+string ctype(ref Gen g, string t, int line) {
+    if (t == "int") {
+        return "int32_t";
+    }
+    if (t == "bool") {
+        return "bool";
+    }
+    if (t == "byte") {
+        return "uint8_t";
+    }
+    if (t == "string") {
+        return "axs_str";
+    }
+    if (t == "void") {
+        return "void";
+    }
+    if (isList(t.clone())) {
+        return "axs_list";
+    }
+    if (findStruct(ref g, t.clone()) < 0) {
+        fail(line, "unknown type '" + t + "'");
+    }
+    return "axs_s_" + t;
+}
+
+string octal(int v) {
+    string digits = "01234567";
+    return digits.substring(v / 64, 1) + digits.substring((v / 8) % 8, 1) + digits.substring(v % 8, 1);
+}
+
+// a C string literal for `s`
+string cString(string s) {
+    string out = "\"";
+    for (int i = 0; i < s.length; i += 1) {
+        byte b = s.byteAt(i);
+        if (b == 34) {
+            out += "\\\"";
+        } else if (b == 92) {
+            out += "\\\\";
+        } else if (b == 10) {
+            out += "\\n";
+        } else if (b < 32 || b >= 127 || b == 63) {
+            out += "\\" + octal(b);
+        } else {
+            out += s.substring(i, 1);
+        }
+    }
+    return out + "\"";
+}
+
+int findVar(ref Gen g, string name) {
+    for (int i = g.vars.length - 1; i >= 0; i -= 1) {
+        if (g.vars[i].name == name) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+string asText(ref Ex e) {
+    if (e.type == "string") {
+        return e.code.clone();
+    }
+    if (e.type == "bool") {
+        return "((" + e.code + ") ? axs_lit(\"true\", 4) : axs_lit(\"false\", 5))";
+    }
+    return "axs_from_int(" + e.code + ")";
+}
+
+Ex genExpr(mut ref Gen g, ref Node n) {
+    int k = n.kind;
+    if (k == N_INT) {
+        return ex(n.text.clone(), "int");
+    }
+    if (k == N_CHAR) {
+        return ex("" + n.num, "int");
+    }
+    if (k == N_BOOL) {
+        return ex(n.text.clone(), "bool");
+    }
+    if (k == N_STR) {
+        return ex("axs_lit(" + cString(n.text.clone()) + ", " + n.text.length + ")", "string");
+    }
+    if (k == N_NAME) {
+        int vi = findVar(ref g, n.text.clone());
+        if (vi >= 0) {
+            if (g.vars[vi].mode != 0) {
+                return ex("(*" + n.text + "_)", g.vars[vi].type.clone());
+            }
+            return ex(n.text + "_", g.vars[vi].type.clone());
+        }
+        for (int i = 0; i < g.consts.length; i += 1) {
+            if (g.consts[i].name == n.text) {
+                return ex("axs_c_" + n.text, g.consts[i].type.clone());
+            }
+        }
+        fail(n.line, "unknown name '" + n.text + "'");
+    }
+    if (k == N_REF) {
+        Ex inner = genExpr(mut ref g, ref n.kids[0]);
+        return ex("&(" + inner.code + ")", inner.type.clone());
+    }
+    if (k == N_UN) {
+        Ex a = genExpr(mut ref g, ref n.kids[0]);
+        return ex("(" + n.text + a.code + ")", a.type.clone());
+    }
+    if (k == N_BIN) {
+        Ex a = genExpr(mut ref g, ref n.kids[0]);
+        Ex b = genExpr(mut ref g, ref n.kids[1]);
+        string op = n.text.clone();
+        if (op == "+" && (a.type == "string" || b.type == "string")) {
+            return ex("axs_cat(" + asText(ref a) + ", " + asText(ref b) + ")", "string");
+        }
+        if ((op == "==" || op == "!=") && a.type == "string") {
+            string eq = "axs_eq(" + a.code + ", " + b.code + ")";
+            if (op == "!=") {
+                eq = "(!" + eq + ")";
+            }
+            return ex(eq, "bool");
+        }
+        string rt = "int";
+        if (op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=" || op == "&&" || op == "||") {
+            rt = "bool";
+        }
+        return ex("(" + a.code + " " + op + " " + b.code + ")", rt);
+    }
+    if (k == N_DOT) {
+        Ex obj = genExpr(mut ref g, ref n.kids[0]);
+        if (n.text == "length" && (obj.type == "string" || isList(obj.type.clone()))) {
+            if (obj.type == "string") {
+                return ex("((int32_t)(" + obj.code + ").n)", "int");
+            }
+            return ex("((int32_t)(" + obj.code + ").len)", "int");
+        }
+        int si = findStruct(ref g, obj.type.clone());
+        if (si < 0) {
+            fail(n.line, "'" + obj.type + "' has no field '" + n.text + "'");
+        }
+        for (int i = 0; i < g.structs[si].fieldNames.length; i += 1) {
+            if (g.structs[si].fieldNames[i] == n.text) {
+                return ex("(" + obj.code + ")." + n.text + "_", g.structs[si].fieldTypes[i].clone());
+            }
+        }
+        fail(n.line, "'" + obj.type + "' has no field '" + n.text + "'");
+    }
+    if (k == N_INDEX) {
+        Ex obj = genExpr(mut ref g, ref n.kids[0]);
+        Ex idx = genExpr(mut ref g, ref n.kids[1]);
+        if (!isList(obj.type.clone())) {
+            fail(n.line, "only lists can be indexed");
+        }
+        string et = elemType(obj.type.clone());
+        return ex("AXS_AT(" + ctype(ref g, et.clone(), n.line) + ", " + obj.code + ", " + idx.code + ")", et);
+    }
+    if (k == N_NEW) {
+        int si = findStruct(ref g, n.text.clone());
+        if (si < 0) {
+            fail(n.line, "unknown struct '" + n.text + "'");
+        }
+        string code = "((axs_s_" + n.text + "){ ";
+        for (int i = 0; i < n.kids.length; i += 1) {
+            Ex v = genExpr(mut ref g, ref n.kids[i].kids[0]);
+            if (i > 0) {
+                code += ", ";
+            }
+            code += "." + n.kids[i].text + "_ = " + v.code;
+        }
+        return ex(code + " })", n.text.clone());
+    }
+    if (k == N_LISTNEW) {
+        return ex("((axs_list){ 0 })", n.type.clone());
+    }
+    if (k == N_MCALL) {
+        Ex obj = genExpr(mut ref g, ref n.kids[0]);
+        string m = n.text.clone();
+        if (m == "clone") {
+            return obj;
+        }
+        if (obj.type == "string") {
+            if (m == "substring") {
+                Ex a = genExpr(mut ref g, ref n.kids[1]);
+                Ex b = genExpr(mut ref g, ref n.kids[2]);
+                return ex("axs_substring(" + obj.code + ", " + a.code + ", " + b.code + ")", "string");
+            }
+            if (m == "byteAt") {
+                Ex a = genExpr(mut ref g, ref n.kids[1]);
+                return ex("axs_byteat(" + obj.code + ", " + a.code + ")", "byte");
+            }
+        }
+        if (isList(obj.type.clone())) {
+            string et = ctype(ref g, elemType(obj.type.clone()), n.line);
+            if (m == "pop") {
+                return ex("(*(" + et + "*)axs_list_pop(&(" + obj.code + "), sizeof(" + et + ")))", elemType(obj.type.clone()));
+            }
+        }
+        fail(n.line, "'" + obj.type + "' has no method '" + m + "' that axs knows");
+    }
+    if (k == N_CALL) {
+        string name = n.text.clone();
+        if (name == "print") {
+            Ex a = genExpr(mut ref g, ref n.kids[0]);
+            if (a.type == "string") {
+                return ex("axs_print_str(" + a.code + ")", "void");
+            }
+            if (a.type == "bool") {
+                return ex("axs_print_bool(" + a.code + ")", "void");
+            }
+            return ex("axs_print_int(" + a.code + ")", "void");
+        }
+        if (name == "readAll" || name == "writeFile" || name == "argCount" || name == "arg" || name == "exit") {
+            string code = "axs_" + name + "(";
+            if (name == "writeFile") {
+                code = "axs_writeText(";
+            }
+            if (name == "exit") {
+                code = "exit(";
+            }
+            for (int i = 0; i < n.kids.length; i += 1) {
+                Ex a = genExpr(mut ref g, ref n.kids[i]);
+                if (i > 0) {
+                    code += ", ";
+                }
+                code += a.code;
+            }
+            string rt = "void";
+            if (name == "readAll" || name == "arg") {
+                rt = "string";
+            }
+            if (name == "writeFile") {
+                rt = "bool";
+            }
+            if (name == "argCount") {
+                rt = "int";
+            }
+            return ex(code + ")", rt);
+        }
+        int fi = findFunc(ref g, name.clone());
+        if (fi < 0) {
+            fail(n.line, "unknown function '" + name + "'");
+        }
+        if (g.funcs[fi].paramTypes.length != n.kids.length) {
+            fail(n.line, "'" + name + "' takes " + g.funcs[fi].paramTypes.length + " arguments");
+        }
+        string call = "axs_f_" + name + "(";
+        for (int i = 0; i < n.kids.length; i += 1) {
+            Ex a = genExpr(mut ref g, ref n.kids[i]);
+            if (i > 0) {
+                call += ", ";
+            }
+            call += a.code;
+        }
+        return ex(call + ")", g.funcs[fi].ret.clone());
+    }
+    fail(n.line, "axs can't compile this expression");
+    return ex("0", "int");
+}
+
+string pad(int depth) {
+    string s = "";
+    for (int i = 0; i < depth; i += 1) {
+        s += "    ";
+    }
+    return s;
+}
+
+void popVars(mut ref Gen g, int mark) {
+    while (g.vars.length > mark) {
+        g.vars.pop();
+    }
+}
+
+void addVar(mut ref Gen g, string name, string type, int mode) {
+    g.vars.add(new Var { name = name, type = type, mode = mode });
+}
+
+// a declaration / assignment / expression without the final `;`
+string genSimple(mut ref Gen g, ref Node n) {
+    if (n.kind == N_VAR) {
+        Ex init = genExpr(mut ref g, ref n.kids[0]);
+        string t = n.type.clone();
+        if (t == "") {
+            t = init.type.clone();
+        }
+        string decl = ctype(ref g, t.clone(), n.line) + " " + n.text + "_ = " + init.code;
+        addVar(mut ref g, n.text.clone(), t, 0);
+        return decl;
+    }
+    if (n.kind == N_ASSIGN) {
+        Ex target = genExpr(mut ref g, ref n.kids[0]);
+        Ex value = genExpr(mut ref g, ref n.kids[1]);
+        if (n.text == "+=" && target.type == "string") {
+            return target.code + " = axs_cat(" + target.code + ", " + asText(ref value) + ")";
+        }
+        return target.code + " " + n.text + " " + value.code;
+    }
+    if (n.kind == N_EXPR) {
+        Ex e = genExpr(mut ref g, ref n.kids[0]);
+        return e.code.clone();
+    }
+    fail(n.line, "expected a simple statement");
+    return "";
+}
+
+void genStmt(mut ref Gen g, ref Node n, int depth) {
+    string ind = pad(depth);
+    int k = n.kind;
+    if (k == N_BLOCK) {
+        int mark = g.vars.length;
+        g.out += ind + "{\n";
+        for (int i = 0; i < n.kids.length; i += 1) {
+            genStmt(mut ref g, ref n.kids[i], depth + 1);
+        }
+        g.out += ind + "}\n";
+        popVars(mut ref g, mark);
+        return;
+    }
+    if (k == N_EXPR && n.kids[0].kind == N_MCALL && (n.kids[0].text == "add" || n.kids[0].text == "clear")) {
+        // list.add(x) / list.clear() as statements
+        Ex obj = genExpr(mut ref g, ref n.kids[0].kids[0]);
+        if (!isList(obj.type.clone())) {
+            fail(n.line, "'" + n.kids[0].text + "' needs a list");
+        }
+        if (n.kids[0].text == "clear") {
+            g.out += ind + "(" + obj.code + ").len = 0;\n";
+            return;
+        }
+        string et = ctype(ref g, elemType(obj.type.clone()), n.line);
+        Ex v = genExpr(mut ref g, ref n.kids[0].kids[1]);
+        g.out += ind + "{ " + et + " axs_tmp = " + v.code + "; axs_list_add(&(" + obj.code + "), &axs_tmp, sizeof(" + et + ")); }\n";
+        return;
+    }
+    if (k == N_VAR || k == N_ASSIGN || k == N_EXPR) {
+        g.out += ind + genSimple(mut ref g, ref n) + ";\n";
+        return;
+    }
+    if (k == N_IF) {
+        Ex c = genExpr(mut ref g, ref n.kids[0]);
+        g.out += ind + "if (" + c.code + ")\n";
+        genStmt(mut ref g, ref n.kids[1], depth);
+        if (n.kids.length > 2) {
+            g.out += ind + "else\n";
+            genStmt(mut ref g, ref n.kids[2], depth);
+        }
+        return;
+    }
+    if (k == N_WHILE) {
+        Ex c = genExpr(mut ref g, ref n.kids[0]);
+        g.out += ind + "while (" + c.code + ")\n";
+        genStmt(mut ref g, ref n.kids[1], depth);
+        return;
+    }
+    if (k == N_FOR) {
+        int mark = g.vars.length;
+        string init = "";
+        if (n.kids[0].kind != N_EMPTY) {
+            init = genSimple(mut ref g, ref n.kids[0]);
+        }
+        string cond = "";
+        if (n.kids[1].kind != N_EMPTY) {
+            Ex c = genExpr(mut ref g, ref n.kids[1]);
+            cond = c.code.clone();
+        }
+        string step = "";
+        if (n.kids[2].kind != N_EMPTY) {
+            step = genSimple(mut ref g, ref n.kids[2]);
+        }
+        g.out += ind + "for (" + init + "; " + cond + "; " + step + ")\n";
+        genStmt(mut ref g, ref n.kids[3], depth);
+        popVars(mut ref g, mark);
+        return;
+    }
+    if (k == N_RETURN) {
+        if (n.kids.length == 0) {
+            g.out += ind + "return;\n";
+            return;
+        }
+        Ex v = genExpr(mut ref g, ref n.kids[0]);
+        g.out += ind + "return " + v.code + ";\n";
+        return;
+    }
+    if (k == N_BREAK) {
+        g.out += ind + "break;\n";
+        return;
+    }
+    if (k == N_CONTINUE) {
+        g.out += ind + "continue;\n";
+        return;
+    }
+    fail(n.line, "axs can't compile this statement");
+}
+
+// struct definitions must come after the structs they contain by value
+void emitStruct(mut ref Gen g, ref Node prog, string name) {
+    for (int i = 0; i < g.emitted.length; i += 1) {
+        if (g.emitted[i] == name) {
+            return;
+        }
+    }
+    g.emitted.add(name.clone());
+    for (int i = 0; i < prog.kids.length; i += 1) {
+        if (prog.kids[i].kind == N_STRUCT && prog.kids[i].text == name) {
+            for (int f = 0; f < prog.kids[i].kids.length; f += 1) {
+                string ft = prog.kids[i].kids[f].type.clone();
+                if (findStruct(ref g, ft.clone()) >= 0) {
+                    emitStruct(mut ref g, ref prog, ft);
+                }
+            }
+            string body = "struct axs_s_" + name + " {\n";
+            for (int f = 0; f < prog.kids[i].kids.length; f += 1) {
+                body += "    " + ctype(ref g, prog.kids[i].kids[f].type.clone(), prog.kids[i].kids[f].line) + " " + prog.kids[i].kids[f].text + "_;\n";
+            }
+            g.out += body + "};\n";
+        }
+    }
+}
+
+string funcHeader(mut ref Gen g, ref Node fn) {
+    string h = ctype(ref g, fn.type.clone(), fn.line) + " axs_f_" + fn.text + "(";
+    for (int i = 0; i < fn.num; i += 1) {
+        if (i > 0) {
+            h += ", ";
+        }
+        string pt = ctype(ref g, fn.kids[i].type.clone(), fn.kids[i].line);
+        if (fn.kids[i].num != 0) {
+            pt += "*";
+        }
+        h += pt + " " + fn.kids[i].text + "_";
+    }
+    if (fn.num == 0) {
+        h += "void";
+    }
+    return h + ")";
+}
+
+string compile(string src) {
+    Parser p = new Parser { toks = lex(src), pos = 0 };
+    Node prog = parseProgram(mut ref p);
+    Gen g = new Gen {
+        out = "/* Generated by axs - the self-hosted Axon compiler. */\n#include \"axs_rt.h\"\n\n",
+        vars = List<Var>(),
+        structs = List<StructInfo>(),
+        funcs = List<FuncInfo>(),
+        consts = List<Var>(),
+        emitted = List<string>(),
+    };
+    // collect declarations first, so order in the file doesn't matter
+    for (int i = 0; i < prog.kids.length; i += 1) {
+        if (prog.kids[i].kind == N_STRUCT) {
+            StructInfo si = new StructInfo { name = prog.kids[i].text.clone(), fieldNames = List<string>(), fieldTypes = List<string>() };
+            for (int f = 0; f < prog.kids[i].kids.length; f += 1) {
+                si.fieldNames.add(prog.kids[i].kids[f].text.clone());
+                si.fieldTypes.add(prog.kids[i].kids[f].type.clone());
+            }
+            g.structs.add(si);
+            g.out += "typedef struct axs_s_" + prog.kids[i].text + " axs_s_" + prog.kids[i].text + ";\n";
+        }
+        if (prog.kids[i].kind == N_FUNC) {
+            FuncInfo fi = new FuncInfo { name = prog.kids[i].text.clone(), ret = prog.kids[i].type.clone(), paramTypes = List<string>() };
+            for (int a = 0; a < prog.kids[i].num; a += 1) {
+                fi.paramTypes.add(prog.kids[i].kids[a].type.clone());
+            }
+            g.funcs.add(fi);
+        }
+        if (prog.kids[i].kind == N_CONST) {
+            g.consts.add(new Var { name = prog.kids[i].text.clone(), type = prog.kids[i].type.clone(), mode = 0 });
+        }
+    }
+    g.out += "\n";
+    for (int i = 0; i < prog.kids.length; i += 1) {
+        if (prog.kids[i].kind == N_STRUCT) {
+            emitStruct(mut ref g, ref prog, prog.kids[i].text.clone());
+        }
+    }
+    for (int i = 0; i < prog.kids.length; i += 1) {
+        if (prog.kids[i].kind == N_CONST) {
+            Ex v = genExpr(mut ref g, ref prog.kids[i].kids[0]);
+            g.out += "#define axs_c_" + prog.kids[i].text + " (" + v.code + ")\n";
+        }
+    }
+    g.out += "\n";
+    for (int i = 0; i < prog.kids.length; i += 1) {
+        if (prog.kids[i].kind == N_FUNC) {
+            g.out += "static " + funcHeader(mut ref g, ref prog.kids[i]) + ";\n";
+        }
+    }
+    for (int i = 0; i < prog.kids.length; i += 1) {
+        if (prog.kids[i].kind == N_FUNC) {
+            g.out += "\nstatic " + funcHeader(mut ref g, ref prog.kids[i]) + "\n";
+            int mark = g.vars.length;
+            for (int a = 0; a < prog.kids[i].num; a += 1) {
+                addVar(mut ref g, prog.kids[i].kids[a].text.clone(), prog.kids[i].kids[a].type.clone(), prog.kids[i].kids[a].num);
+            }
+            genStmt(mut ref g, ref prog.kids[i].kids[prog.kids[i].num], 0);
+            popVars(mut ref g, mark);
+        }
+    }
+    g.out += "\nint main(int argc, char** argv) {\n    axs_argc = argc;\n    axs_argv = argv;\n    return axs_f_main();\n}\n";
+    return g.out.clone();
+}
+
+int main() {
+    if (argCount() != 2) {
+        print("usage: axs <input.ax> <output.c>");
+        return 2;
+    }
+    string src = readAll(arg(0));
+    if (src.length == 0) {
+        print("axs: can't read " + arg(0));
+        return 1;
+    }
+    string c = compile(src);
+    if (!writeFile(arg(1), c)) {
+        print("axs: can't write " + arg(1));
+        return 1;
+    }
+    return 0;
+}

@@ -1,0 +1,196 @@
+// Phase 4: generics, Box, Map and the bigger standard library.
+interface Shape {
+    double area();
+    string name();
+}
+
+struct Circle : Shape {
+    double r;
+    double area() { return 3.0 * r * r; }
+    string name() { return "circle"; }
+}
+
+struct Rect : Shape {
+    double w;
+    double h;
+    double area() { return w * h; }
+    string name() { return $"rect {w}x{h}"; }
+}
+
+// generic struct with methods
+struct Pair<A, B> {
+    A first;
+    B second;
+
+    Pair<B, A> swapped() {
+        return new Pair<B, A> { first = second.clone(), second = first.clone() };
+    }
+}
+
+// generic stack built on List
+struct Stack<T> {
+    List<T> items;
+
+    mut void push(T item) {
+        items.add(item);
+    }
+
+    mut T? pop() {
+        if (items.length == 0) {
+            return none;
+        }
+        return items.pop();
+    }
+
+    int size() {
+        return items.length;
+    }
+}
+
+// generic enum
+enum Option<T> {
+    Some(T value),
+    Nothing,
+}
+
+// recursive data needs Box
+enum Tree {
+    Leaf(int value),
+    Node(Box<Tree> left, Box<Tree> right),
+}
+
+int sum(ref Tree t) {
+    switch (t) {
+        case Leaf(int v): return v;
+        case Node(var l, var r): return sum(ref l.value) + sum(ref r.value);
+    }
+}
+
+interface Describe {
+    string describe();
+}
+
+extend int : Describe {
+    string describe() { return "the number " + this; }
+}
+
+extend string : Describe {
+    string describe() { return "the text '" + this + "'"; }
+}
+
+// generic functions, with and without bounds
+T largest<T>(ref List<T> xs, T start) {
+    T best = start;
+    foreach (var x in xs) {
+        if (x > best) {
+            best = x;
+        }
+    }
+    return best;
+}
+
+string describeAll<T : Describe>(ref T[] xs) {
+    string out = "";
+    foreach (var x in xs) {
+        out += x.describe() + "; ";
+    }
+    return out;
+}
+
+Option<int> findEven(ref int[] xs) {
+    foreach (int x in xs) {
+        if (x % 2 == 0) {
+            return Option.Some(x);
+        }
+    }
+    return Option.Nothing;
+}
+
+int main() {
+    Pair<int, string> p = new Pair<int, string> { first = 1, second = "one" };
+    Pair<string, int> q = p.swapped();
+    print($"{q.first} {q.second}");
+
+    Stack<string> st = new Stack<string> { items = List<string>() };
+    st.push("a");
+    st.push("b");
+    print(st.size());
+    print(st.pop() ?? "empty");
+    print(st.pop() ?? "empty");
+    print(st.pop() ?? "empty");
+
+    List<int> nums = [4, 9, 2, 7];
+    print(largest(ref nums, 0));
+    List<double> ds = [1.5, -2.0];
+    print(largest<double>(ref ds, 0.0));
+    int[] ints = [1, 2];
+    print(describeAll(ref ints));
+    string[] words = ["hi", "yo"];
+    print(describeAll(ref words));
+
+    int[] odd = [1, 3, 5];
+    int[] mixed = [1, 3, 8, 5];
+    switch (findEven(ref odd)) {
+        case Some(var v): print("even " + v);
+        case Nothing: print("no even");
+    }
+    if (findEven(ref mixed) is Some(int found)) {
+        print("even " + found);
+    }
+
+    // Box: recursive trees
+    Tree t = Tree.Node(Box(Tree.Leaf(1)), Box(Tree.Node(Box(Tree.Leaf(2)), Box(Tree.Leaf(3)))));
+    print(sum(ref t));
+    Box<int> counter = Box(10);
+    counter.value += 5;
+    print(counter.value);
+
+    // Box<Interface>: different types in one list
+    List<Box<Shape>> shapes = List<Box<Shape>>();
+    shapes.add(Box(new Circle { r = 1 }));
+    shapes.add(Box(new Rect { w = 2, h = 3 }));
+    double total = 0;
+    foreach (var s in shapes) {
+        total += s.area();
+        print(s.name());
+    }
+    print(total);
+    List<Box<Shape>> copies = shapes.clone();
+    print(copies.length);
+
+    // Map
+    Map<string, int> counts = Map<string, int>();
+    string[] text = "the cat and the hat and the bat".split(" ");
+    foreach (var w in text) {
+        counts[w] += 1;
+    }
+    foreach (var k in counts.keys()) {
+        write(k + "=" + counts[k] + " ");
+    }
+    print();
+    print(counts.contains("cat") && !counts.contains("dog"));
+    print(counts.get("the") ?? 0);
+    print(counts.remove("and") ?? -1);
+    print(counts.length);
+    Map<int, string> names = Map<int, string>();
+    for (int i = 0; i < 100; i++) {
+        names[i] = "n" + i;
+    }
+    for (int i = 0; i < 100; i += 2) {
+        names.remove(i);
+    }
+    print($"{names.length} {names[51]} {names.get(50) ?? "gone"}");
+
+    // more string and list methods
+    print("abc".padLeft(5) + "|" + "abc".padRight(5) + "|" + "ab".repeat(3) + "|" + "a-b-a".lastIndexOf("a"));
+    print("héllo".chars().length);
+    List<string> fruit = ["pear", "apple", "fig"];
+    fruit.sort();
+    print(fruit[0] + " " + fruit[2] + " " + fruit.contains("fig") + " " + fruit.indexOf("pear"));
+    int[] ns = [5, 3, 9, 1];
+    ns.sort();
+    ns.reverse();
+    print($"{ns[0]} {ns[3]}");
+    print("".isEmpty());
+    return 0;
+}

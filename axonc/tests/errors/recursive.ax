@@ -1,0 +1,3 @@
+// error: contains itself
+struct Node { int v; Node next; }
+int main() { return 0; }

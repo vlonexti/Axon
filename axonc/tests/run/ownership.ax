@@ -1,0 +1,117 @@
+// Ownership, moves, drops, Disposable, early returns with live values.
+struct File : Disposable {
+    string path;
+
+    mut void dispose() {
+        print("closing " + path);
+    }
+}
+
+struct Bag {
+    List<string> items;
+    string? label;
+}
+
+string makeName(int i) {
+    return "item" + i;
+}
+
+void consume(Bag b) {
+    print("consumed bag with " + b.items.length + " items");
+}
+
+int firstLong(ref List<string> xs) {
+    for (int i = 0; i < xs.length; i++) {
+        string s = xs[i].clone();
+        if (s.length > 5) {
+            return i;   // s must be dropped on this early return
+        }
+    }
+    return -1;
+}
+
+Result<string, string> check(int n) {
+    if (n < 0) {
+        return Err("negative: " + n);
+    }
+    return Ok("ok " + n);
+}
+
+Result<int, string> chain(int a, int b) {
+    string tag = "chain";   // dropped when try returns early
+    string x = try check(a);
+    string y = try check(b);
+    return Ok(x.length + y.length + tag.length);
+}
+
+int main() {
+    // values move into the list, list frees them
+    List<string> names = List<string>();
+    for (int i = 0; i < 5; i++) {
+        names.add(makeName(i));
+    }
+    names.add("a-much-longer-name");
+    print(firstLong(ref names));
+    string last = names.pop();
+    print(last);
+    string removed = names.removeAt(0);
+    print(removed + " " + names.length);
+    names.insert(0, "front");
+    print(names[0]);
+    names[1] = "replaced";       // old value dropped
+    print(names[1]);
+
+    // struct holding owned fields
+    Bag bag = new Bag { items = names, label = "mine" };
+    if (bag.label is string l) {
+        print("label: " + l);
+    }
+    Bag copy = bag.clone();
+    consume(bag);
+    print(copy.items.length);
+
+    // reassigning drops the old value
+    string s = "one";
+    s = s + " two";
+    s += " three";
+    print(s);
+
+    // Disposable runs at scope end, in reverse order
+    {
+        File a = new File { path = "a.txt" };
+        File b = new File { path = "b.txt" };
+        print("using files");
+    }
+    File moved = new File { path = "moved.txt" };
+    File other = moved;          // only `other` gets disposed
+    print("moved file");
+
+    // temporaries inside loops and conditions
+    int count = 0;
+    while (makeName(count).length < 6 && count < 100) {
+        count++;
+        if (makeName(count) == "item3") {
+            continue;
+        }
+    }
+    print(count);
+
+    switch (chain(1, 22)) {
+        case Ok(int v): print("chain ok " + v);
+        case Err(string e): print("chain err " + e);
+    }
+    switch (chain(1, -5)) {
+        case Ok(int v): print("chain ok " + v);
+        case Err(string e): print("chain err " + e);
+    }
+
+    string?[] maybes = ["x", none, "z"];
+    int present = 0;
+    foreach (var m in maybes) {
+        if (m is string v) {
+            present += v.length;
+        }
+    }
+    print(present);
+    return 0;
+}

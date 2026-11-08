@@ -1,0 +1,24 @@
+// vecmath - small 2D vector math, shared as a package.
+using geometry;
+using std.math;
+
+struct Vec {
+    double x;
+    double y;
+
+    double length() {
+        return sqrt(x * x + y * y);
+    }
+
+    string toText() {
+        return $"({x}, {y})";
+    }
+}
+
+Vec add(Vec a, Vec b) {
+    return new Vec { x = a.x + b.x, y = a.y + b.y };
+}
+
+double dot(Vec a, Vec b) {
+    return a.x * b.x + a.y * b.y;
+}

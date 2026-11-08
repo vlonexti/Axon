@@ -1,0 +1,4 @@
+// error: which `T` requires
+interface Describe { string describe(); }
+string show<T : Describe>(ref T x) { return x.describe(); }
+int main() { bool b = true; print(show(ref b)); return 0; }

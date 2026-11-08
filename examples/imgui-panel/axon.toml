@@ -1,0 +1,10 @@
+# axon.toml
+name = "panel"
+version = "0.1.0"
+entry = "src/main.ax"
+
+[libraries]
+# raylib 5.5 for Windows (MSVC), from https://github.com/raysan5/raylib/releases
+raylib = { include = "libs/raylib/include", lib = "libs/raylib/lib", link = ["raylib", "winmm", "gdi32", "user32", "shell32", "opengl32"] }
+# Dear ImGui + cimgui + rlImGui in one static library; rebuild it with libs\build_imgui.bat
+imgui = { include = "libs/imgui/include", lib = "libs/imgui/lib", link = ["imgui"], defines = ["CIMGUI_DEFINE_ENUMS_AND_STRUCTS", "CIMGUI_NO_EXPORT"] }

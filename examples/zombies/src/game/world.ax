@@ -1,0 +1,303 @@
+// game/world.ax - the game logic. It doesn't touch raylib, so tests can run it without a window.
+using std.math;
+using std.random;
+
+struct Vec2 {
+    double x;
+    double y;
+}
+
+Vec2 vec(double x, double y) {
+    return new Vec2 { x = x, y = y };
+}
+
+Vec2 toward(Vec2 from, Vec2 to, double speed) {
+    double d = distance(from.x, from.y, to.x, to.y);
+    if (d < 0.0001) {
+        return vec(0, 0);
+    }
+    return vec((to.x - from.x) / d * speed, (to.y - from.y) / d * speed);
+}
+
+struct Input {
+    bool up = false;
+    bool down = false;
+    bool left = false;
+    bool right = false;
+    bool shoot = false;
+    Vec2 aim;
+}
+
+struct Player {
+    Vec2 pos;
+    int hp = 5;
+    double cooldown = 0;
+    double hurtTimer = 0;
+}
+
+struct Zombie {
+    Vec2 pos;
+    int hp;
+    int maxHp;
+    double speed;
+}
+
+struct Bullet {
+    Vec2 pos;
+    Vec2 vel;
+    double life = 1.2;
+}
+
+// Short-lived visual effects of different kinds live in one List<Box<Effect>>.
+interface Effect {
+    mut bool update(double dt);   // false when the effect is finished
+    Vec2 where();
+    double radius();
+    int alpha();
+    bool isBlood();
+}
+
+struct Splat : Effect {
+    Vec2 pos;
+    double age = 0;
+
+    mut bool update(double dt) {
+        age += dt;
+        return age < 0.6;
+    }
+    Vec2 where() { return pos; }
+    double radius() { return 10 + age * 40; }
+    int alpha() { return (int)(200 * (1 - age / 0.6)); }
+    bool isBlood() { return true; }
+}
+
+struct MuzzleFlash : Effect {
+    Vec2 pos;
+    double age = 0;
+
+    mut bool update(double dt) {
+        age += dt;
+        return age < 0.08;
+    }
+    Vec2 where() { return pos; }
+    double radius() { return 6; }
+    int alpha() { return 255; }
+    bool isBlood() { return false; }
+}
+
+struct World {
+    double width;
+    double height;
+    Player player;
+    List<Zombie> zombies;
+    List<Bullet> bullets;
+    List<Box<Effect>> effects;
+    int score = 0;
+    int wave = 1;
+    int toSpawn = 5;
+    double spawnTimer = 0;
+    double time = 0;
+    bool over = false;
+
+    mut void update(double dt, ref Input input) {
+        if (over) {
+            updateEffects(dt);
+            return;
+        }
+        time += dt;
+        movePlayer(dt, ref input);
+        shoot(dt, ref input);
+        spawnZombies(dt);
+        moveBullets(dt);
+        moveZombies(dt);
+        hitZombies();
+        hurtPlayer(dt);
+        updateEffects(dt);
+        if (toSpawn == 0 && zombies.length == 0) {
+            wave++;
+            toSpawn = 4 + wave * 3;
+        }
+    }
+
+    mut void movePlayer(double dt, ref Input input) {
+        double speed = 230;
+        Vec2 d = vec(0, 0);
+        if (input.up) { d.y -= 1; }
+        if (input.down) { d.y += 1; }
+        if (input.left) { d.x -= 1; }
+        if (input.right) { d.x += 1; }
+        Vec2 step = toward(vec(0, 0), d, speed * dt);
+        player.pos.x = maxf(16, minf(width - 16, player.pos.x + step.x));
+        player.pos.y = maxf(16, minf(height - 16, player.pos.y + step.y));
+    }
+
+    mut void shoot(double dt, ref Input input) {
+        player.cooldown -= dt;
+        if (!input.shoot || player.cooldown > 0) {
+            return;
+        }
+        player.cooldown = 0.12;
+        Vec2 vel = toward(player.pos, input.aim, 650);
+        if (vel.x == 0 && vel.y == 0) {
+            return;
+        }
+        bullets.add(new Bullet { pos = player.pos, vel = vel });
+        effects.add(Box(new MuzzleFlash { pos = player.pos }));
+    }
+
+    mut void spawnZombies(double dt) {
+        spawnTimer -= dt;
+        if (toSpawn <= 0 || spawnTimer > 0) {
+            return;
+        }
+        spawnTimer = maxf(0.25, 1.2 - wave * 0.1);
+        toSpawn--;
+        // appear on a random edge of the screen
+        int side = randomInt(0, 3);
+        double t = randomDouble();
+        Vec2 at = vec(0, 0);
+        switch (side) {
+            case 0: at = vec(t * width, -20);
+            case 1: at = vec(width + 20, t * height);
+            case 2: at = vec(t * width, height + 20);
+            default: at = vec(-20, t * height);
+        }
+        int hp = 1 + wave / 2;
+        zombies.add(new Zombie { pos = at, hp = hp, maxHp = hp, speed = 50 + randomInt(0, 30) + wave * 6 });
+    }
+
+    mut void moveBullets(double dt) {
+        for (int i = bullets.length - 1; i >= 0; i--) {
+            bullets[i].pos.x += bullets[i].vel.x * dt;
+            bullets[i].pos.y += bullets[i].vel.y * dt;
+            bullets[i].life -= dt;
+            if (bullets[i].life <= 0) {
+                bullets.removeAt(i);
+            }
+        }
+    }
+
+    mut void moveZombies(double dt) {
+        for (int i = 0; i < zombies.length; i++) {
+            Vec2 step = toward(zombies[i].pos, player.pos, zombies[i].speed * dt);
+            zombies[i].pos.x += step.x;
+            zombies[i].pos.y += step.y;
+        }
+    }
+
+    mut void hitZombies() {
+        for (int b = bullets.length - 1; b >= 0; b--) {
+            for (int z = zombies.length - 1; z >= 0; z--) {
+                Vec2 bp = bullets[b].pos;
+                Vec2 zp = zombies[z].pos;
+                if (distance(bp.x, bp.y, zp.x, zp.y) < 18) {
+                    zombies[z].hp--;
+                    bullets.removeAt(b);
+                    if (zombies[z].hp <= 0) {
+                        Zombie dead = zombies.removeAt(z);
+                        effects.add(Box(new Splat { pos = dead.pos }));
+                        score += 10 * wave;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    mut void hurtPlayer(double dt) {
+        player.hurtTimer -= dt;
+        foreach (var z in zombies) {
+            if (distance(z.pos.x, z.pos.y, player.pos.x, player.pos.y) < 26 && player.hurtTimer <= 0) {
+                player.hp--;
+                player.hurtTimer = 0.8;
+                if (player.hp <= 0) {
+                    over = true;
+                }
+            }
+        }
+    }
+
+    mut void updateEffects(double dt) {
+        for (int i = effects.length - 1; i >= 0; i--) {
+            if (!effects[i].update(dt)) {
+                effects.removeAt(i);
+            }
+        }
+    }
+}
+
+World newWorld(double width, double height) {
+    return new World {
+        width = width,
+        height = height,
+        player = new Player { pos = vec(width / 2, height / 2) },
+        zombies = List<Zombie>(),
+        bullets = List<Bullet>(),
+        effects = List<Box<Effect>>(),
+    };
+}
+
+// ---- tests: run the game without a window -------------------------------------------
+
+Input autopilot(ref World w, double t) {
+    // circle around the middle and shoot at the closest zombie
+    Vec2 aim = vec(0, 0);
+    double best = 1000000;
+    foreach (var z in w.zombies) {
+        double d = distance(z.pos.x, z.pos.y, w.player.pos.x, w.player.pos.y);
+        if (d < best) {
+            best = d;
+            aim = z.pos;
+        }
+    }
+    return new Input {
+        up = sin(t) > 0.3,
+        down = sin(t) < -0.3,
+        left = cos(t) < -0.3,
+        right = cos(t) > 0.3,
+        shoot = w.zombies.length > 0,
+        aim = aim,
+    };
+}
+
+@test
+void zombiesSpawnAndDie() {
+    randomSeed(42);
+    World w = newWorld(960, 600);
+    double t = 0;
+    for (int frame = 0; frame < 60 * 30; frame++) {
+        Input input = autopilot(ref w, t);
+        w.update(1.0 / 60, ref input);
+        t += 1.0 / 60;
+    }
+    assert(w.score > 0, "the autopilot should have killed some zombies");
+    assert(w.wave > 1, "the first wave should be cleared");
+}
+
+@test
+void bulletsExpire() {
+    World w = newWorld(400, 400);
+    w.toSpawn = 0;
+    Input input = new Input { shoot = true, aim = vec(400, 200) };
+    w.update(1.0 / 60, ref input);
+    assert(w.bullets.length == 1);
+    Input idle = new Input { aim = vec(0, 0) };
+    for (int i = 0; i < 120; i++) {
+        w.update(1.0 / 60, ref idle);
+    }
+    assert(w.bullets.length == 0, "bullets disappear after their lifetime");
+    assert(w.effects.length == 0, "effects finish");
+}
+
+@test
+void playerCanDie() {
+    World w = newWorld(400, 400);
+    w.toSpawn = 0;
+    w.zombies.add(new Zombie { pos = w.player.pos, hp = 99, maxHp = 99, speed = 0 });
+    Input idle = new Input { aim = vec(0, 0) };
+    for (int i = 0; i < 60 * 10; i++) {
+        w.update(1.0 / 60, ref idle);
+    }
+    assert(w.over);
+    assert(w.player.hp == 0);
+}

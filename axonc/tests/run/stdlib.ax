@@ -1,0 +1,37 @@
+// The standard library modules.
+using std.io;
+using std.os;
+using std.text;
+using std.math;
+
+int main() {
+    string path = "stdlib_test.txt";
+    writeFile(path, "line one\n");
+    appendFile(path, "line two\n");
+    print(fileExists(path));
+    switch (readFile(path)) {
+        case Ok(var text):
+            string[] lines = text.trim().split("\n");
+            print(join(ref lines, " | "));
+        case Err(var e):
+            print("error: " + e);
+    }
+    deleteFile(path);
+    print(fileExists(path));
+    print(readFile("no/such/file.txt") is Err(_));
+
+    print(isDigit('7') && !isDigit('x') && isLetter('q') && isSpace(' '));
+    print(fromChar(toUpperChar('a')) + fromChar(toLowerChar('B')));
+    List<string> parts = ["a", "b", "c"];
+    print(joinList(ref parts, ","));
+
+    print(env("AXON_SURELY_NOT_SET") ?? "unset");
+    print(run("exit 3"));
+
+    print(abs(-4) + max(2, 9) + clamp(50, 0, 10));
+    print(absl(-5000000000L));
+    print(lerp(0, 10, 0.25));
+    print(round(toDegrees(PI)));
+    print(distance(0, 0, 3, 4));
+    return 0;
+}
